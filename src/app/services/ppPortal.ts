@@ -150,6 +150,8 @@ export type ApplicationRow = {
   environmental_data: string;
   sector_params_data: string;
   eds_comments: string;
+  eds_summary: string;
+  ai_compliance_report: string;
   payment_status: string;
   created_at: string;
   updated_at: string;
@@ -272,6 +274,7 @@ export async function fetchTracking(id: number): Promise<{
   applicationId: string;
   status: string;
   edsComments: string;
+  edsSummary: string;
   paymentStatus: string;
   history: ApplicationHistory[];
 }> {

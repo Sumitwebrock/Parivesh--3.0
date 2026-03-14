@@ -202,3 +202,40 @@ export async function addSectorParam(
 export async function deleteSectorParam(sectorId: number, paramId: number): Promise<void> {
   await adminFetch('DELETE', `/admin/sectors/${sectorId}/params/${paramId}`)
 }
+
+// ── Blockchain Audit Trail ───────────────────────────────────────────────────
+export type BlockchainAuditRow = {
+  id: number
+  application_id: number
+  application_ref: string
+  action: string
+  user_role: string
+  performed_by: string
+  event_time: string
+  tx_hash: string | null
+  provider: string
+  network: string
+  status: string
+  block_number: number | null
+  created_at: string
+}
+
+export type BlockchainAuditResponse = {
+  rows: BlockchainAuditRow[]
+  totals: {
+    total: number
+    confirmed: number
+    queued: number
+  }
+  provider: string
+  network: string
+  chainDocumentHash: string | null
+}
+
+export async function fetchBlockchainAudit(params?: { applicationId?: string; limit?: number }): Promise<BlockchainAuditResponse> {
+  const search = new URLSearchParams()
+  if (params?.applicationId?.trim()) search.set('applicationId', params.applicationId.trim())
+  if (params?.limit) search.set('limit', String(params.limit))
+  const suffix = search.toString() ? `?${search.toString()}` : ''
+  return adminFetch('GET', `/admin/blockchain/audit${suffix}`)
+}

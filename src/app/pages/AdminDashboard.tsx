@@ -18,6 +18,7 @@ import {
   ChevronUp,
   Loader2,
   Download,
+  ShieldCheck,
 } from "lucide-react";
 import { motion } from "motion/react";
 import {
@@ -48,6 +49,9 @@ import {
   deleteSector,
   addSectorParam,
   deleteSectorParam,
+  fetchBlockchainAudit,
+  type BlockchainAuditResponse,
+  type BlockchainAuditRow,
   clearAdminSession,
   getAdminUsername,
   getAdminToken,
@@ -131,6 +135,7 @@ export default function AdminDashboard() {
                 { id: "users", icon: Users, label: "User Management" },
                 { id: "templates", icon: FileText, label: "Gist Templates" },
                 { id: "sectors", icon: Settings, label: "Sector Parameters" },
+                { id: "audit", icon: ShieldCheck, label: "Blockchain Audit" },
               ].map((item) => (
                 <button
                   key={item.id}
@@ -173,6 +178,7 @@ export default function AdminDashboard() {
             {activeTab === "users" && <UsersTab show={show} />}
             {activeTab === "templates" && <TemplatesTab show={show} />}
             {activeTab === "sectors" && <SectorsTab show={show} />}
+            {activeTab === "audit" && <AuditTrailTab show={show} />}
           </div>
         </div>
       </div>
@@ -240,6 +246,113 @@ function OverviewTab({ stats, chartData }: { stats: Stat[]; chartData: ChartRow[
             </div>
           ))}
         </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function AuditTrailTab({ show }: { show: (msg: string, ok?: boolean) => void }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<BlockchainAuditRow[]>([]);
+  const [meta, setMeta] = useState<BlockchainAuditResponse | null>(null);
+  const [applicationId, setApplicationId] = useState("");
+
+  const load = async (ref = "") => {
+    setLoading(true);
+    try {
+      const data = await fetchBlockchainAudit({ applicationId: ref, limit: 300 });
+      setRows(data.rows);
+      setMeta(data);
+    } catch (e: unknown) {
+      show(e instanceof Error ? e.message : "Failed to load blockchain audit events.", false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        <div className="p-6 border-b border-gray-200 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">Blockchain Audit Trail Viewer</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Immutable audit events and hash anchoring for workflow actions.</p>
+            </div>
+            <div className="text-xs text-gray-600 rounded-lg bg-gray-100 px-3 py-2">
+              Provider: {meta?.provider || "-"} | Network: {meta?.network || "-"}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={applicationId}
+              onChange={(e) => setApplicationId(e.target.value)}
+              placeholder="Filter by Application ID (e.g. EC/2026/10021)"
+              className="border rounded-lg px-3 py-2 text-sm min-w-[320px]"
+            />
+            <button
+              onClick={() => load(applicationId)}
+              className="px-4 py-2 rounded-lg bg-[#003087] text-white text-sm font-medium hover:bg-[#002060]"
+            >
+              Search
+            </button>
+            <button
+              onClick={() => { setApplicationId(""); load(""); }}
+              className="px-4 py-2 rounded-lg bg-gray-100 text-sm font-medium hover:bg-gray-200"
+            >
+              Reset
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
+            <div className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800">Confirmed: {meta?.totals.confirmed ?? 0}</div>
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">Queued: {meta?.totals.queued ?? 0}</div>
+            <div className="rounded-lg bg-slate-100 px-3 py-2 text-slate-700">Total: {meta?.totals.total ?? 0}</div>
+            <div className="rounded-lg bg-blue-50 px-3 py-2 text-blue-800 truncate">Chain Hash: {meta?.chainDocumentHash || "-"}</div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="p-12 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-700" /></div>
+        ) : rows.length === 0 ? (
+          <div className="p-12 text-center text-gray-400">No audit entries found.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                <tr>
+                  <th className="px-4 py-3 text-left">Application ID</th>
+                  <th className="px-4 py-3 text-left">Action</th>
+                  <th className="px-4 py-3 text-left">User Role</th>
+                  <th className="px-4 py-3 text-left">Timestamp</th>
+                  <th className="px-4 py-3 text-left">Tx Hash</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.map((row) => (
+                  <tr key={row.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{row.application_ref}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.action}</td>
+                    <td className="px-4 py-3 text-gray-700 capitalize">{row.user_role || "-"}</td>
+                    <td className="px-4 py-3 text-gray-500">{new Date(row.event_time).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 max-w-[280px] truncate" title={row.tx_hash || ""}>{row.tx_hash || "-"}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${row.status === "confirmed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                        {row.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </motion.div>
   );

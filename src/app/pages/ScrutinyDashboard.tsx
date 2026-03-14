@@ -18,8 +18,9 @@ import {
   type ScrutinyVerificationResult,
   type ScrutinyQueueItem,
 } from "../services/scrutiny";
+import { GisEnvironmentalVerificationPanel } from "../components/GisEnvironmentalVerificationPanel";
 import { StatusHistoryModal } from "../components/StatusHistoryModal";
-import { CheckCircle2, History, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, History, Loader2, XCircle } from "lucide-react";
 
 type PaymentVerification = "Verified" | "Pending" | "Invalid";
 
@@ -31,12 +32,27 @@ const statusBadge: Record<string, string> = {
   Finalized: "bg-emerald-100 text-emerald-800",
 };
 
+const integrityBadge: Record<string, string> = {
+  verified: "bg-emerald-100 text-emerald-800",
+  mismatch: "bg-red-100 text-red-800",
+  unavailable: "bg-amber-100 text-amber-800",
+};
+
 function parseJson(raw: string): Record<string, unknown> {
   try {
     return JSON.parse(raw || "{}");
   } catch {
     return {};
   }
+}
+
+function parseSummaryBullets(summary: string): string[] {
+  return String(summary || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean);
 }
 
 export default function ScrutinyDashboard() {
@@ -62,6 +78,7 @@ export default function ScrutinyDashboard() {
   const [gistLinks, setGistLinks] = useState<{ docx: string; pdf: string } | null>(null);
   const [verificationOutcome, setVerificationOutcome] = useState<ScrutinyVerificationResult | null>(null);
   const [historyModal, setHistoryModal] = useState<{ id: number; ref: string } | null>(null);
+  const [showEdsSummary, setShowEdsSummary] = useState(true);
 
   const sectorOptions = useMemo(() => {
     const values = new Set(queue.map((q) => q.sector));
@@ -128,6 +145,20 @@ export default function ScrutinyDashboard() {
     [detail, isScrutinyLocked, hasFlaggedDocuments, isPaymentReadyForReferral],
   );
 
+  const integrity = useMemo(() => {
+    if (!detail) return null;
+    const payload = (detail as ScrutinyApplicationDetail & {
+      integrity?: {
+        status?: string;
+        message?: string;
+        txHash?: string | null;
+        documentCount?: number;
+      };
+    }).integrity;
+    if (!payload || typeof payload !== "object" || typeof payload.status !== "string") return null;
+    return payload;
+  }, [detail]);
+
   const referDisabledReason = useMemo(() => {
     if (!detail) return "Select an application first.";
     if (isScrutinyLocked) return "Application is already referred/finalized.";
@@ -135,6 +166,46 @@ export default function ScrutinyDashboard() {
     if (!isPaymentReadyForReferral) return "Payment must be Verified or Pending Verification before referral.";
     return "";
   }, [detail, isScrutinyLocked, hasFlaggedDocuments, isPaymentReadyForReferral]);
+
+  const automatedPotentialGapSummary = useMemo(() => {
+    if (!detail) return [] as string[];
+
+    const toBriefLine = (label: string): string => {
+      switch (label) {
+        case "Estimated cost is valid":
+          return "Estimated project cost appears invalid or missing. Please provide a valid positive value.";
+        case "Land area is valid":
+          return "Land area appears invalid or missing. Please provide a valid positive value.";
+        case "No flagged/missing documents":
+          return "One or more uploaded documents are flagged or missing and require correction/re-upload.";
+        case "At least one document uploaded":
+          return "No supporting document has been uploaded yet.";
+        case "Payment ready for scrutiny":
+          return "Payment status is not ready for scrutiny; keep it Pending Verification or Verified.";
+        default:
+          return `${label} requires correction.`;
+      }
+    };
+
+    const fromFailedChecks = localVerificationChecks.checks
+      .filter((check) => !check.ok)
+      .map((check) => toBriefLine(check.label));
+
+    const selectedDocNames = detail.documents
+      .filter((doc) => edsDocIds.includes(doc.id))
+      .map((doc) => doc.doc_name.trim())
+      .filter(Boolean);
+
+    const selectedDocLine = selectedDocNames.length
+      ? [`Documents selected for EDS correction: ${selectedDocNames.join(", ")}.`]
+      : [];
+
+    const reviewerLine = edsComments.trim()
+      ? [`Reviewer note: ${edsComments.trim().split(/\r?\n/)[0]}`]
+      : [];
+
+    return Array.from(new Set([...fromFailedChecks, ...selectedDocLine, ...reviewerLine])).slice(0, 6);
+  }, [detail, localVerificationChecks.checks, edsDocIds, edsComments]);
 
   const loadQueue = async () => {
     setLoadingQueue(true);
@@ -422,6 +493,18 @@ export default function ScrutinyDashboard() {
                 ))
               )}
             </div>
+
+            <div className="p-4 border-t border-gray-100">
+              {detail ? (
+                <div className="space-y-4">
+                  <GisEnvironmentalVerificationPanel application={detail.application} />
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                  Select an application to load GIS environmental verification.
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
@@ -446,13 +529,27 @@ export default function ScrutinyDashboard() {
                   <Info label="Location" value={[detail.application.district, detail.application.state].filter(Boolean).join(", ") || "-"} />
                 </div>
 
-                <Section title="Environmental Data">
-                  <pre className="text-xs bg-gray-50 border rounded p-3 overflow-auto">{JSON.stringify(parseJson(detail.application.environmental_data), null, 2)}</pre>
-                </Section>
-
-                <Section title="Sector-Specific Parameters">
-                  <pre className="text-xs bg-gray-50 border rounded p-3 overflow-auto">{JSON.stringify(parseJson(detail.application.sector_params_data), null, 2)}</pre>
-                </Section>
+                {integrity && (
+                  <Section title="Document Integrity Status">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-gray-800">Blockchain verification</p>
+                        <span className={`text-xs px-2 py-1 rounded ${integrityBadge[integrity.status] ?? integrityBadge.unavailable}`}>
+                          {integrity.status === "verified"
+                            ? "Verified"
+                            : integrity.status === "mismatch"
+                              ? "Integrity Mismatch"
+                              : "Pending"}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-700">{integrity.message || "No blockchain integrity payload available."}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
+                        <p>Anchored Tx: {integrity.txHash || "-"}</p>
+                        <p>Documents in hash: {integrity.documentCount ?? 0}</p>
+                      </div>
+                    </div>
+                  </Section>
+                )}
 
                 <Section title="Document Verification">
                   {isScrutinyLocked && (
@@ -577,40 +674,38 @@ export default function ScrutinyDashboard() {
                   </div>
                 </Section>
 
-                <Section title="EDS Generation Result">
-                  {verificationOutcome?.result === "EDS" ? (
-                    <div className="space-y-2 rounded-2xl border border-orange-200 bg-orange-50 p-4">
-                      <p className="text-sm font-semibold text-orange-800">
-                        EDS generated and application returned to Proponent for correction.
-                      </p>
-                      <p className="text-xs text-orange-700">Deficiencies ({verificationOutcome.deficiencyCount})</p>
-                      <ul className="text-sm text-orange-900 space-y-1">
-                        {verificationOutcome.deficiencies.map((d, idx) => (
-                          <li key={`${d.type}-${d.field}-${idx}`}>- [{d.type}] {d.field}: {d.message}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-gray-500 border rounded-lg p-3">
-                      Run verification to generate EDS automatically when requirements are not met.
-                    </div>
-                  )}
-                </Section>
-
-                <Section title="Auto GIST Generation Result">
-                  {verificationOutcome?.result === "VERIFIED" && gistLinks ? (
-                    <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                      <p className="text-sm font-semibold text-emerald-800">Auto-generated GIST is ready.</p>
-                      <div className="flex flex-wrap gap-2">
-                        <a className="px-3 py-1.5 text-xs rounded bg-white border" href={gistLinks.docx} target="_blank" rel="noreferrer">Download DOCX</a>
-                        <a className="px-3 py-1.5 text-xs rounded bg-white border" href={gistLinks.pdf} target="_blank" rel="noreferrer">Download PDF</a>
+                <Section title="EDS Summary (Read-only)">
+                  <div className="rounded-xl border border-orange-200 bg-orange-50">
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-3 text-left"
+                      onClick={() => setShowEdsSummary((prev) => !prev)}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-orange-900">Automated Summary of Required Changes</p>
+                        <p className="text-xs text-orange-700">Available for scrutiny re-review and proponent resubmission guidance.</p>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-gray-500 border rounded-lg p-3">
-                      Run verification with all checks satisfied to auto-generate GIST.
-                    </div>
-                  )}
+                      {showEdsSummary ? <ChevronUp className="w-4 h-4 text-orange-700" /> : <ChevronDown className="w-4 h-4 text-orange-700" />}
+                    </button>
+                    {showEdsSummary && (
+                      <div className="px-4 pb-4">
+                        {detail.application.eds_summary?.trim() ? (
+                          <ul className="space-y-1 text-sm text-orange-900 list-disc pl-5">
+                            {parseSummaryBullets(detail.application.eds_summary).map((item, idx) => (
+                              <li key={`${idx}-${item}`}>{item}</li>
+                            ))}
+                          </ul>
+                        ) : automatedPotentialGapSummary.length ? (
+                          <ul className="space-y-1 text-sm text-orange-900 list-disc pl-5">
+                            {automatedPotentialGapSummary.map((item, idx) => (
+                              <li key={`${idx}-${item}`}>{item}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-orange-800">No potential gaps detected currently. Run scrutiny verification or issue EDS to generate a formal summary.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </Section>
 
                 <Section title="Payment Verification">

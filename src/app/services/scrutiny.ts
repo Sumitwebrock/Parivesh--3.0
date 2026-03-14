@@ -132,6 +132,8 @@ export type ScrutinyApplicationDetail = {
     environmental_data: string;
     sector_params_data: string;
     eds_comments: string;
+    eds_summary: string;
+    ai_compliance_report: string;
     payment_status: string;
     sector_name: string;
     owner_name: string;
@@ -158,6 +160,16 @@ export type ScrutinyApplicationDetail = {
     reviewed_at: string;
     locked: number;
   } | null;
+  integrity: {
+    status: "verified" | "mismatch" | "unavailable";
+    message: string;
+    expectedHash: string | null;
+    calculatedHash: string | null;
+    blockchainHash?: string | null;
+    txHash: string | null;
+    recordedAt?: string;
+    documentCount?: number;
+  };
 };
 
 export type ScrutinyVerificationDeficiency = {

@@ -3,7 +3,7 @@ import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { ProponentSidebar } from "../components/ProponentSidebar";
 import { fetchApplications, fetchTracking, type ApplicationRow } from "../services/ppPortal";
-import { Loader2, Download, Lock } from "lucide-react";
+import { Loader2, Download, Lock, ChevronDown, ChevronUp } from "lucide-react";
 
 const API_ORIGIN = "http://localhost:8787";
 async function downloadMoM(appId: number, format: "docx" | "pdf") {
@@ -23,12 +23,22 @@ async function downloadMoM(appId: number, format: "docx" | "pdf") {
 
 type Tracking = Awaited<ReturnType<typeof fetchTracking>>;
 
+function parseSummaryBullets(summary: string): string[] {
+  return String(summary || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean);
+}
+
 export default function ProponentTrack() {
   const [apps, setApps] = useState<ApplicationRow[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [tracking, setTracking] = useState<Tracking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showEdsSummary, setShowEdsSummary] = useState(true);
 
   useEffect(() => {
     const run = async () => {
@@ -99,8 +109,36 @@ export default function ProponentTrack() {
                     <Info label="Reference" value={tracking.applicationId} />
                   </div>
                   {tracking.status === "EDS" && (
-                    <div className="text-sm bg-orange-50 text-orange-800 border border-orange-200 rounded-lg p-3">
-                      <strong>EDS Comments:</strong> {tracking.edsComments || "Please review scrutiny deficiency comments and re-upload corrected documents."}
+                    <div className="space-y-3">
+                      <div className="text-sm bg-orange-50 text-orange-800 border border-orange-200 rounded-lg p-3">
+                        <strong>EDS Comments:</strong> {tracking.edsComments || "Please review scrutiny deficiency comments and re-upload corrected documents."}
+                      </div>
+                      <div className="border border-orange-200 bg-orange-50 rounded-lg">
+                        <button
+                          className="w-full flex items-center justify-between px-4 py-3 text-left"
+                          onClick={() => setShowEdsSummary((prev) => !prev)}
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-orange-900">View EDS Details</p>
+                            <p className="text-xs text-orange-700">Automated summary of corrections required before resubmission.</p>
+                          </div>
+                          {showEdsSummary ? <ChevronUp className="w-4 h-4 text-orange-700" /> : <ChevronDown className="w-4 h-4 text-orange-700" />}
+                        </button>
+                        {showEdsSummary && (
+                          <div className="px-4 pb-4">
+                            {tracking.edsSummary?.trim() ? (
+                              <ul className="space-y-1 text-sm text-orange-900 list-disc pl-5">
+                                {parseSummaryBullets(tracking.edsSummary).map((item, idx) => (
+                                  <li key={`${idx}-${item}`}>{item}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-orange-800">Summary is not available yet. Please follow the EDS comments and flagged documents.</p>
+                            )}
+                            <p className="text-xs text-orange-700 mt-3">This summary is read-only. Update your application and upload revised documents, then resubmit.</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                   {tracking.status === "Finalized" && selected && (

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowLeft, ArrowRight, Check, Loader2, Save, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, MapPin, Save, Upload } from "lucide-react";
 import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { ApplicationFeePaymentCard } from "../components/ApplicationFeePaymentCard";
+import { INDIA_STATE_DISTRICTS, INDIAN_STATES } from "../utils/indiaLocations";
 
 const DEFAULT_UPI_ID = "sumitkumarsahoo772@okicici";
 import {
@@ -26,6 +27,17 @@ const steps = [
   "Payment",
   "Submit",
 ];
+
+function parseCoordinateParts(raw: string): { latitude: string; longitude: string } {
+  const text = String(raw || "").trim();
+  if (!text) return { latitude: "", longitude: "" };
+
+  const values = text.match(/-?\d+(?:\.\d+)?/g) ?? [];
+  return {
+    latitude: values[0] ?? "",
+    longitude: values[1] ?? "",
+  };
+}
 
 export default function NewApplication() {
   const [config, setConfig] = useState<PpConfig | null>(null);
@@ -53,9 +65,12 @@ export default function NewApplication() {
   const [location, setLocation] = useState({
     state: "",
     district: "",
+    landmark: "",
     coordinates: "",
     landArea: "",
   });
+  const [coordinateParts, setCoordinateParts] = useState({ latitude: "", longitude: "" });
+  const [autoLocatingCoordinates, setAutoLocatingCoordinates] = useState(false);
 
   const [environmentalData, setEnvironmentalData] = useState({
     impact: "",
@@ -93,6 +108,45 @@ export default function NewApplication() {
     run();
   }, []);
 
+  useEffect(() => {
+    const parsed = parseCoordinateParts(location.coordinates);
+    if (parsed.latitude === coordinateParts.latitude && parsed.longitude === coordinateParts.longitude) return;
+    setCoordinateParts(parsed);
+  }, [location.coordinates]);
+
+  useEffect(() => {
+    if (!location.state || !location.district || !location.landmark.trim()) return;
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setAutoLocatingCoordinates(true);
+      try {
+        const query = [location.landmark, location.district, location.state, "India"].filter(Boolean).join(", ");
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+        if (!res.ok) return;
+        const rows = (await res.json()) as Array<{ lat: string; lon: string }>;
+        if (!active || !rows.length) return;
+
+        const latitude = rows[0].lat;
+        const longitude = rows[0].lon;
+        setCoordinateParts({ latitude, longitude });
+        setLocation((prev) => ({
+          ...prev,
+          coordinates: `${latitude}, ${longitude}`,
+        }));
+      } catch {
+        // Keep manual coordinate entry available if geocoding fails.
+      } finally {
+        if (active) setAutoLocatingCoordinates(false);
+      }
+    }, 700);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [location.state, location.district, location.landmark]);
+
   const selectedSector: SectorConfig | null = useMemo(() => {
     if (!config || !sectorId) return null;
     return config.sectors.find((s) => s.id === sectorId) ?? null;
@@ -102,6 +156,18 @@ export default function NewApplication() {
     if (!selectedSector || !category) return [];
     return selectedSector.checklist.filter((c) => c.category === category);
   }, [selectedSector, category]);
+
+  const districtOptions = useMemo(() => {
+    if (!location.state) return [] as string[];
+    return INDIA_STATE_DISTRICTS[location.state] ?? [];
+  }, [location.state]);
+
+  useEffect(() => {
+    if (!location.state) return;
+    if (!districtOptions.includes(location.district)) {
+      setLocation((previous) => ({ ...previous, district: "" }));
+    }
+  }, [districtOptions, location.district, location.state]);
 
   const canMoveNext = useMemo(() => {
     if (currentStep === 1) return Boolean(category && sectorId);
@@ -132,7 +198,10 @@ export default function NewApplication() {
       district: location.district,
       coordinates: location.coordinates,
       landArea: Number(location.landArea || 0),
-      environmentalData,
+      environmentalData: {
+        ...environmentalData,
+        landmark: location.landmark,
+      },
       sectorParamsData: sectorParams,
     };
 
@@ -287,10 +356,87 @@ export default function NewApplication() {
             <div className="space-y-4">
               <h2 className="text-xl font-semibold">Step 2 + 3: Location & Environmental Data</h2>
               <div className="grid md:grid-cols-2 gap-4">
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="State" value={location.state} onChange={(e) => setLocation((v) => ({ ...v, state: e.target.value }))} />
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="District" value={location.district} onChange={(e) => setLocation((v) => ({ ...v, district: e.target.value }))} />
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="Coordinates" value={location.coordinates} onChange={(e) => setLocation((v) => ({ ...v, coordinates: e.target.value }))} />
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="Land Area" value={location.landArea} onChange={(e) => setLocation((v) => ({ ...v, landArea: e.target.value }))} />
+                <select
+                  className="w-full border rounded-lg px-3 py-2 bg-white"
+                  value={location.state}
+                  onChange={(e) => setLocation((v) => ({ ...v, state: e.target.value, district: "" }))}
+                >
+                  <option value="">Select State / UT</option>
+                  {INDIAN_STATES.map((state) => (
+                    <option key={state} value={state}>{state}</option>
+                  ))}
+                </select>
+                <select
+                  className="w-full border rounded-lg px-3 py-2 bg-white disabled:bg-gray-100 disabled:text-gray-500"
+                  value={location.district}
+                  onChange={(e) => setLocation((v) => ({ ...v, district: e.target.value }))}
+                  disabled={!location.state}
+                >
+                  <option value="">{location.state ? "Select District" : "Select state first"}</option>
+                  {districtOptions.map((district) => (
+                    <option key={district} value={district}>{district}</option>
+                  ))}
+                </select>
+                <div className="md:col-span-2 relative">
+                  <input
+                    className="w-full border rounded-lg px-3 py-2 pr-11"
+                    placeholder="Landmark / nearby known place"
+                    value={location.landmark}
+                    onChange={(e) => setLocation((v) => ({ ...v, landmark: e.target.value }))}
+                  />
+                  <span className="absolute inset-y-0 right-3 flex items-center text-gray-400">
+                    {autoLocatingCoordinates ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:col-span-2">
+                  <input
+                    className="w-full border rounded-lg px-3 py-2"
+                    type="number"
+                    step="0.000001"
+                    placeholder="Latitude"
+                    value={coordinateParts.latitude}
+                    onChange={(e) => {
+                      const latitude = e.target.value;
+                      setCoordinateParts((prev) => ({ ...prev, latitude }));
+                      setLocation((prev) => ({
+                        ...prev,
+                        coordinates: [latitude, coordinateParts.longitude].filter(Boolean).join(", "),
+                      }));
+                    }}
+                  />
+                  <input
+                    className="w-full border rounded-lg px-3 py-2"
+                    type="number"
+                    step="0.000001"
+                    placeholder="Longitude"
+                    value={coordinateParts.longitude}
+                    onChange={(e) => {
+                      const longitude = e.target.value;
+                      setCoordinateParts((prev) => ({ ...prev, longitude }));
+                      setLocation((prev) => ({
+                        ...prev,
+                        coordinates: [coordinateParts.latitude, longitude].filter(Boolean).join(", "),
+                      }));
+                    }}
+                  />
+                </div>
+                <div className="relative">
+                  <input
+                    className="w-full border rounded-lg px-3 py-2 pr-16"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Land Area"
+                    value={location.landArea}
+                    onChange={(e) => setLocation((v) => ({ ...v, landArea: e.target.value }))}
+                  />
+                  <span className="absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">ha</span>
+                </div>
+              </div>
+              <div className="text-xs text-gray-500 -mt-1 space-y-1">
+                <p>Landmark helps auto-generate coordinates using district and state.</p>
+                <p>Enter project coordinates as decimal latitude and longitude.</p>
+                <p>Land area should be entered in hectares (ha).</p>
               </div>
               <textarea className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Environmental impact details" value={environmentalData.impact} onChange={(e) => setEnvironmentalData((v) => ({ ...v, impact: e.target.value }))} />
               <textarea className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Resource usage" value={environmentalData.resources} onChange={(e) => setEnvironmentalData((v) => ({ ...v, resources: e.target.value }))} />
@@ -363,12 +509,14 @@ export default function NewApplication() {
 
           {currentStep === 7 && (
             <div className="text-center py-10">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Check className="w-8 h-8 text-green-700" />
+              <div className="text-center">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Check className="w-8 h-8 text-green-700" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Application Submitted</h2>
+                <p className="text-gray-600">Your application is now in the scrutiny pipeline with payment pending verification.</p>
+                {applicationRef && <p className="text-sm mt-3 text-gray-500">Reference: {applicationRef}</p>}
               </div>
-              <h2 className="text-2xl font-bold mb-2">Application Submitted</h2>
-              <p className="text-gray-600">Your application is now in the scrutiny pipeline with payment pending verification.</p>
-              {applicationRef && <p className="text-sm mt-3 text-gray-500">Reference: {applicationRef}</p>}
             </div>
           )}
 

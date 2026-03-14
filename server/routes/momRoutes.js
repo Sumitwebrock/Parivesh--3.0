@@ -88,7 +88,7 @@ async function writePdf(filePath, content) {
   fs.writeFileSync(filePath, bytes)
 }
 
-export function createMomRoutes({ db, uploadsDir }) {
+export function createMomRoutes({ db, uploadsDir, blockchainAudit = null }) {
   const router = express.Router()
   const momUploadsDir = path.join(uploadsDir, 'mom')
   ensureDirectory(momUploadsDir)
@@ -239,6 +239,17 @@ export function createMomRoutes({ db, uploadsDir }) {
 
     historyInsertStmt.run(appRow.id, 'MoMGenerated', 'MoM converted and documents generated', String(req.user.id))
 
+    if (blockchainAudit) {
+      try {
+        blockchainAudit.queueWorkflowEvent(appRow.id, 'MoM Generated', {
+          performedBy: req.user.login_id || String(req.user.id),
+          userRole: req.user.assigned_role || 'mom',
+        })
+      } catch (error) {
+        console.error('[PARIVESH][Blockchain] Failed to queue MoM generated event', error)
+      }
+    }
+
     res.json({
       docxUrl: `/uploads/mom/${appRow.id}_mom.docx`,
       pdfUrl: `/uploads/mom/${appRow.id}_mom.pdf`,
@@ -258,8 +269,8 @@ export function createMomRoutes({ db, uploadsDir }) {
       WHERE id = ?
     `).run(finalizedAt, req.user.id, appRow.id)
 
-    const existingMom = db.prepare('SELECT id FROM mom_records WHERE application_id = ?').get(appRow.id)
-    if (existingMom) {
+    const momRecord = db.prepare('SELECT id, mom_docx_path, mom_pdf_path FROM mom_records WHERE application_id = ?').get(appRow.id)
+    if (momRecord) {
       db.prepare(`
         UPDATE mom_records
         SET finalized = 1, finalized_at = ?, finalized_by = ?, updated_at = datetime('now')
@@ -268,6 +279,23 @@ export function createMomRoutes({ db, uploadsDir }) {
     }
 
     historyInsertStmt.run(appRow.id, 'Finalized', 'MoM Finalized and Locked', String(req.user.id))
+
+    if (blockchainAudit) {
+      try {
+        blockchainAudit.queueWorkflowEvent(appRow.id, 'MoM Finalized', {
+          performedBy: req.user.login_id || String(req.user.id),
+          userRole: req.user.assigned_role || 'mom',
+        })
+        blockchainAudit.queueMoMHash(appRow.id, momRecord?.mom_pdf_path || momRecord?.mom_docx_path || appRow.mom_path, {
+          action: 'MoM Finalized',
+          performedBy: req.user.login_id || String(req.user.id),
+          userRole: req.user.assigned_role || 'mom',
+        })
+      } catch (error) {
+        console.error('[PARIVESH][Blockchain] Failed to queue MoM finalization hash', error)
+      }
+    }
+
     res.json({ success: true, finalizedAt })
   })
 

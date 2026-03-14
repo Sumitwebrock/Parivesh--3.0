@@ -9,6 +9,8 @@ import multer from 'multer'
 import PDFDocument from 'pdfkit'
 import { Document as WordDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import { createMomRoutes } from './routes/momRoutes.js'
+import { createAiComplianceService } from './services/aiComplianceService.js'
+import { createBlockchainAuditService } from './services/blockchainAuditService.js'
 
 dotenv.config()
 
@@ -211,6 +213,51 @@ try { db.exec(`ALTER TABLE applications ADD COLUMN gist_content TEXT`) } catch (
 try { db.exec(`ALTER TABLE applications ADD COLUMN finalized INTEGER DEFAULT 0`) } catch (_) {}
 try { db.exec(`ALTER TABLE applications ADD COLUMN finalized_at TEXT`) } catch (_) {}
 try { db.exec(`ALTER TABLE applications ADD COLUMN finalized_by INTEGER`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN eds_summary TEXT DEFAULT ''`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN ai_compliance_report TEXT DEFAULT ''`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN application_hash TEXT DEFAULT ''`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN blockchain_txn_id TEXT DEFAULT ''`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN mom_hash TEXT DEFAULT ''`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN audit_txn_id TEXT DEFAULT ''`) } catch (_) {}
+try { db.exec(`ALTER TABLE applications ADD COLUMN application_hash_recorded_at TEXT`) } catch (_) {}
+
+const { queueAiCompliancePrecheck } = createAiComplianceService({ db })
+const blockchainAudit = await createBlockchainAuditService({ db, dataDir, uploadsDir })
+
+const queueWorkflowAudit = (applicationId, action, actor = null) => {
+  try {
+    blockchainAudit.queueWorkflowEvent(applicationId, action, {
+      performedBy: actor?.login_id || actor?.username || 'system',
+      userRole: actor?.assigned_role || actor?.role || actor?.username || 'system',
+    })
+  } catch (error) {
+    console.error('[PARIVESH][Blockchain] Unable to queue workflow audit event', error)
+  }
+}
+
+const queueSubmissionAudit = (applicationId, actor = null, action = 'Application Submitted') => {
+  try {
+    blockchainAudit.queueApplicationSubmission(applicationId, {
+      action,
+      performedBy: actor?.login_id || actor?.username || 'system',
+      userRole: actor?.assigned_role || actor?.role || actor?.username || 'proponent',
+    })
+  } catch (error) {
+    console.error('[PARIVESH][Blockchain] Unable to queue submission integrity audit', error)
+  }
+}
+
+const queueMoMFinalizationAudit = (applicationId, momPdfPath, actor = null) => {
+  try {
+    blockchainAudit.queueMoMHash(applicationId, momPdfPath, {
+      action: 'MoM Finalized',
+      performedBy: actor?.login_id || actor?.username || 'system',
+      userRole: actor?.assigned_role || actor?.role || actor?.username || 'mom',
+    })
+  } catch (error) {
+    console.error('[PARIVESH][Blockchain] Unable to queue MoM hash audit', error)
+  }
+}
 
 // Backfill legacy rows where assigned_role stayed at default despite role label.
 db.prepare(`
@@ -394,7 +441,10 @@ function toPrettyLines(value) {
 function buildScrutinyGistText({ appRow, docs, payment, templateLabel, generatedBy, generatedAt }) {
   const env = safeJson(appRow.environmental_data, {})
   const sectorParams = safeJson(appRow.sector_params_data, {})
+  const aiReport = safeJson(appRow.ai_compliance_report, {})
   const location = [appRow.district, appRow.state].filter(Boolean).join(', ') || '-'
+  const aiObservations = Array.isArray(aiReport.environmentalObservations) ? aiReport.environmentalObservations.slice(0, 3) : []
+  const aiFocusAreas = Array.isArray(aiReport.verificationFocusAreas) ? aiReport.verificationFocusAreas.slice(0, 3) : []
   const lines = [
     `PARIVESH Auto Generated Meeting Gist (${appRow.category})`,
     '',
@@ -438,6 +488,18 @@ function buildScrutinyGistText({ appRow, docs, payment, templateLabel, generated
     '1. Validate environmental data against submitted annexures.',
     '2. Verify document completeness and consistency with sector requirements.',
     '3. Confirm payment status before referring to MoM.',
+    '',
+    'AI Compliance Highlights (Advisory):',
+    ...(aiObservations.length
+      ? aiObservations.map((item, index) => `${index + 1}. ${item}`)
+      : ['No AI compliance observations available.']),
+    ...(aiFocusAreas.length
+      ? [
+          '',
+          'AI Suggested Verification Focus:',
+          ...aiFocusAreas.map((item, index) => `${index + 1}. ${item}`),
+        ]
+      : []),
   ]
 
   return lines.join('\n')
@@ -561,7 +623,7 @@ app.use((_req, res, next) => {
 })
 
 app.use('/uploads', express.static(uploadsDir))
-app.use('/api/mom', ...momAuth, createMomRoutes({ db, uploadsDir }))
+app.use('/api/mom', ...momAuth, createMomRoutes({ db, uploadsDir, blockchainAudit }))
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'auth-api' }))
@@ -684,6 +746,9 @@ app.get('/api/pp/applications/:id', auth, (req, res) => {
     db.prepare('SELECT * FROM application_payments WHERE application_id = ? ORDER BY id DESC LIMIT 1').get(row.id) ?? null,
   )
   const history = db.prepare('SELECT * FROM application_status_history WHERE application_id = ? ORDER BY created_at ASC').all(row.id)
+  if (!row.ai_compliance_report && ['Submitted', 'Under Scrutiny', 'EDS', 'Referred', 'Finalized'].includes(row.status)) {
+    queueAiCompliancePrecheck(row.id, 'pp_detail_lazy_load')
+  }
   res.json({ ...row, documents: docs, payment: pay, history })
 })
 
@@ -720,6 +785,12 @@ app.post('/api/pp/applications', auth, (req, res) => {
 
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(result.lastInsertRowid, status, status === 'Draft' ? 'Draft saved by PP' : 'Application submitted by PP', req.user.login_id)
+
+  if (status === 'Submitted') {
+    queueAiCompliancePrecheck(result.lastInsertRowid, 'pp_create_submitted')
+    queueSubmissionAudit(result.lastInsertRowid, req.user, 'Application Submitted')
+    queueWorkflowAudit(result.lastInsertRowid, 'Application Submitted', req.user)
+  }
 
   const created = db.prepare('SELECT * FROM applications WHERE id = ?').get(result.lastInsertRowid)
   res.status(201).json(created)
@@ -779,6 +850,20 @@ app.patch('/api/pp/applications/:id', auth, (req, res) => {
       : `Status updated to ${status} by PP`
     db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
       .run(row.id, status, statusComment, req.user.login_id)
+
+    if (status === 'Submitted') {
+      queueSubmissionAudit(row.id, req.user, 'Application Submitted')
+      queueWorkflowAudit(row.id, 'Application Submitted', req.user)
+    } else {
+      queueWorkflowAudit(row.id, `Status changed to ${status}`, req.user)
+    }
+  } else if (clearingEds && nextStatus === 'Under Scrutiny') {
+    queueSubmissionAudit(row.id, req.user, 'Application Resubmitted')
+    queueWorkflowAudit(row.id, 'Application Resubmitted to Under Scrutiny', req.user)
+  }
+
+  if (nextStatus === 'Submitted') {
+    queueAiCompliancePrecheck(row.id, 'pp_update_submitted')
   }
 
   res.json(db.prepare('SELECT * FROM applications WHERE id = ?').get(row.id))
@@ -797,6 +882,10 @@ app.post('/api/pp/applications/:id/documents', auth, appDocUpload.single('file')
   `).run(row.id, docName, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, 'Uploaded')
 
   db.prepare('UPDATE applications SET updated_at = datetime(\'now\') WHERE id = ?').run(row.id)
+
+  if (row.status === 'Submitted') {
+    queueAiCompliancePrecheck(row.id, 'document_upload')
+  }
 
   res.status(201).json(db.prepare('SELECT * FROM application_documents WHERE id = ?').get(result.lastInsertRowid))
 })
@@ -858,10 +947,17 @@ app.patch('/api/pp/applications/:id/payment/mark-paid', auth, (req, res) => {
   if (row.status === 'Draft') {
     db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
       .run(row.id, 'Submitted', 'Application auto-submitted after payment by PP.', req.user.login_id)
+    queueSubmissionAudit(row.id, req.user, 'Application Submitted')
+    queueWorkflowAudit(row.id, 'Application Submitted', req.user)
   }
 
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(row.id, nextAppStatus, 'Payment marked paid by PP. Pending scrutiny verification.', req.user.login_id)
+  queueWorkflowAudit(row.id, 'Payment marked paid', req.user)
+
+  if (nextAppStatus === 'Submitted') {
+    queueAiCompliancePrecheck(row.id, 'payment_mark_paid_submitted')
+  }
 
   res.json({ ok: true, paymentStatus: 'Pending Verification' })
 })
@@ -870,11 +966,15 @@ app.get('/api/pp/applications/:id/tracking', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM applications WHERE id = ? AND owner_user_id = ?').get(req.params.id, req.user.id)
   if (!row) return res.status(404).json({ message: 'Application not found.' })
   const history = db.prepare('SELECT status, comment, created_at FROM application_status_history WHERE application_id = ? ORDER BY created_at ASC').all(row.id)
+  if (!row.ai_compliance_report && ['Submitted', 'Under Scrutiny', 'EDS', 'Referred', 'Finalized'].includes(row.status)) {
+    queueAiCompliancePrecheck(row.id, 'pp_tracking_lazy_load')
+  }
   res.json({
     id: row.id,
     applicationId: row.application_id,
     status: row.status,
     edsComments: row.eds_comments,
+    edsSummary: row.eds_summary || '',
     paymentStatus: row.payment_status,
     history,
   })
@@ -1027,6 +1127,64 @@ const createEdsMessageFromDeficiencies = (deficiencies) => {
   return [header, ...items].join('\n')
 }
 
+const splitCommentLines = (text) => String(text || '')
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean)
+
+const listMissingChecklistDocs = (appRow, docs) => {
+  const uploadedDocNames = new Set(docs.map((doc) => normalizeDocName(doc.doc_name)))
+  const requiredDocs = db.prepare(
+    'SELECT doc_name FROM sector_doc_checklists WHERE sector_id = ? AND category = ? AND required = 1 ORDER BY sort_order ASC, id ASC'
+  ).all(appRow.sector_id, appRow.category)
+
+  return requiredDocs
+    .map((row) => String(row.doc_name || '').trim())
+    .filter(Boolean)
+    .filter((docName) => !uploadedDocNames.has(normalizeDocName(docName)))
+}
+
+const createEdsSummary = ({ appRow, docs, deficiencies, deficiencyComments = '', remarks = '', selectedFlaggedDocumentIds = [] }) => {
+  const bullets = []
+
+  for (const deficiency of deficiencies) {
+    bullets.push(deficiency.message)
+  }
+
+  const selectedDocNames = docs
+    .filter((doc) => selectedFlaggedDocumentIds.includes(doc.id))
+    .map((doc) => String(doc.doc_name || '').trim())
+    .filter(Boolean)
+  for (const docName of selectedDocNames) {
+    bullets.push(`Document requires correction: ${docName}.`)
+  }
+
+  const missingDocs = listMissingChecklistDocs(appRow, docs)
+  for (const docName of missingDocs) {
+    bullets.push(`Required checklist document is missing: ${docName}.`)
+  }
+
+  const reviewerCommentLines = [
+    ...splitCommentLines(deficiencyComments),
+    ...splitCommentLines(remarks),
+  ]
+  for (const line of reviewerCommentLines) {
+    bullets.push(`Reviewer comment: ${line}`)
+  }
+
+  const uniqueBullets = Array.from(new Set(
+    bullets
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  ))
+
+  if (!uniqueBullets.length) {
+    return ''
+  }
+
+  return ['EDS Summary of Required Changes:', ...uniqueBullets.map((item) => `- ${item}`)].join('\n')
+}
+
 const upsertScrutinyReview = ({ appId, paymentVerification, reviewData, reviewNotes, reviewedBy, locked = null }) => {
   const existing = db.prepare('SELECT id, payment_verification, locked FROM scrutiny_reviews WHERE application_id = ?').get(appId)
   const resolvedPaymentVerification = paymentVerification ?? existing?.payment_verification ?? 'Pending'
@@ -1163,6 +1321,10 @@ app.get('/api/scrutiny/applications/:id', scrutinyAuth, (req, res) => {
   const history = db.prepare('SELECT status, comment, created_by, created_at FROM application_status_history WHERE application_id = ? ORDER BY created_at ASC').all(row.id)
   const review = db.prepare('SELECT * FROM scrutiny_reviews WHERE application_id = ?').get(row.id)
   const gistRow = db.prepare('SELECT id, generated_by, generated_at, gist_content FROM scrutiny_gists WHERE application_id = ?').get(row.id)
+  const integrity = blockchainAudit.verifyDocumentIntegrity(row.id)
+  if (!row.ai_compliance_report && ['Submitted', 'Under Scrutiny', 'EDS', 'Referred', 'Finalized'].includes(row.status)) {
+    queueAiCompliancePrecheck(row.id, 'scrutiny_detail_lazy_load')
+  }
 
   res.json({
     application: row,
@@ -1176,6 +1338,7 @@ app.get('/api/scrutiny/applications/:id', scrutinyAuth, (req, res) => {
           review_data: safeJson(review.review_data, {}),
         }
       : null,
+    integrity,
   })
 })
 
@@ -1198,6 +1361,9 @@ app.patch('/api/scrutiny/applications/:id/documents/:docId', scrutinyAuth, (req,
     .run(verificationStatus, String(deficiencyComment).trim(), doc.id)
   db.prepare('UPDATE applications SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
     .run('Under Scrutiny', appRow.id)
+  if (appRow.status !== 'Under Scrutiny') {
+    queueWorkflowAudit(appRow.id, 'Scrutiny Review Started', req.user)
+  }
 
   res.json(db.prepare('SELECT * FROM application_documents WHERE id = ?').get(doc.id))
 })
@@ -1243,6 +1409,9 @@ app.patch('/api/scrutiny/applications/:id/payment', scrutinyAuth, (req, res) => 
     .run(appPaymentStatus, verifiedBy, isVerifiedDecision ? new Date().toISOString() : null, payment.id)
   db.prepare('UPDATE applications SET payment_status = ?, status = ?, updated_at = datetime(\'now\') WHERE id = ?')
     .run(appPaymentStatus, 'Under Scrutiny', appRow.id)
+  if (appRow.status !== 'Under Scrutiny') {
+    queueWorkflowAudit(appRow.id, 'Scrutiny Review Started', req.user)
+  }
 
   const existing = db.prepare('SELECT id FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
   if (existing) {
@@ -1267,6 +1436,18 @@ app.post('/api/scrutiny/applications/:id/eds', scrutinyAuth, (req, res) => {
   const message = [String(deficiencyComments).trim(), String(remarks).trim()].filter(Boolean).join('\n\n')
   if (!message) return res.status(400).json({ message: 'Deficiency comments are required.' })
 
+  const docs = parseDocumentsWithVerification(appRow.id)
+  const payment = parsePaymentForReview(appRow.id)
+  const { deficiencies } = buildScrutinyDeficiencies(appRow, docs, payment)
+  const edsSummary = createEdsSummary({
+    appRow,
+    docs,
+    deficiencies,
+    deficiencyComments,
+    remarks,
+    selectedFlaggedDocumentIds: Array.isArray(flaggedDocumentIds) ? flaggedDocumentIds : [],
+  })
+
   if (Array.isArray(flaggedDocumentIds) && flaggedDocumentIds.length) {
     const stmt = db.prepare('UPDATE application_documents SET verification_status = ?, deficiency_comment = ? WHERE id = ? AND application_id = ?')
     for (const docId of flaggedDocumentIds) {
@@ -1274,10 +1455,11 @@ app.post('/api/scrutiny/applications/:id/eds', scrutinyAuth, (req, res) => {
     }
   }
 
-  db.prepare('UPDATE applications SET status = ?, eds_comments = ?, updated_at = datetime(\'now\') WHERE id = ?')
-    .run('EDS', message, appRow.id)
+  db.prepare('UPDATE applications SET status = ?, eds_comments = ?, eds_summary = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .run('EDS', message, edsSummary, appRow.id)
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'EDS', 'EDS issued by scrutiny team', req.user.login_id)
+  queueWorkflowAudit(appRow.id, 'EDS Issued', req.user)
 
   const existing = db.prepare('SELECT id FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
   if (existing) {
@@ -1304,6 +1486,14 @@ app.post('/api/scrutiny/applications/:id/verify', scrutinyAuth, async (req, res)
 
   if (deficiencies.length) {
     const edsMessage = createEdsMessageFromDeficiencies(deficiencies)
+    const edsSummary = createEdsSummary({
+      appRow,
+      docs,
+      deficiencies,
+      deficiencyComments: edsMessage,
+      remarks: '',
+      selectedFlaggedDocumentIds: flaggedDocumentIds,
+    })
 
     if (flaggedDocumentIds.length) {
       const stmt = db.prepare('UPDATE application_documents SET verification_status = ?, deficiency_comment = ? WHERE id = ? AND application_id = ?')
@@ -1312,10 +1502,11 @@ app.post('/api/scrutiny/applications/:id/verify', scrutinyAuth, async (req, res)
       }
     }
 
-    db.prepare('UPDATE applications SET status = ?, eds_comments = ?, updated_at = datetime(\'now\') WHERE id = ?')
-      .run('EDS', edsMessage, appRow.id)
+    db.prepare('UPDATE applications SET status = ?, eds_comments = ?, eds_summary = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .run('EDS', edsMessage, edsSummary, appRow.id)
     db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
       .run(appRow.id, 'EDS', 'EDS auto-generated by scrutiny verification due to unmet requirements.', req.user.login_id)
+    queueWorkflowAudit(appRow.id, 'EDS Issued', req.user)
 
     const existingReview = db.prepare('SELECT payment_verification FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
     upsertScrutinyReview({
@@ -1353,6 +1544,7 @@ app.post('/api/scrutiny/applications/:id/verify', scrutinyAuth, async (req, res)
     .run('Under Scrutiny', '', appRow.id)
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'Under Scrutiny', 'Scrutiny verification successful. GIST generated automatically.', req.user.login_id)
+  queueWorkflowAudit(appRow.id, 'Scrutiny Review Started', req.user)
 
   const existingReview = db.prepare('SELECT payment_verification FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
   upsertScrutinyReview({
@@ -1395,6 +1587,7 @@ app.post('/api/scrutiny/applications/:id/gist/generate', scrutinyAuth, async (re
   db.prepare('UPDATE applications SET status = ?, updated_at = datetime(\'now\') WHERE id = ?').run('Under Scrutiny', Number(req.params.id))
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(Number(req.params.id), 'Under Scrutiny', 'Meeting gist generated by scrutiny team', req.user.login_id)
+  queueWorkflowAudit(Number(req.params.id), 'Scrutiny Review Started', req.user)
 
   res.json({
     ok: true,
@@ -1447,6 +1640,7 @@ app.post('/api/scrutiny/applications/:id/refer', scrutinyAuth, async (req, res) 
   db.prepare('UPDATE applications SET status = ?, updated_at = datetime(\'now\') WHERE id = ?').run('Referred', appRow.id)
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'Referred', 'Application referred to MoM by scrutiny team', req.user.login_id)
+  queueWorkflowAudit(appRow.id, 'Application Referred to Meeting', req.user)
 
   const existing = db.prepare('SELECT id FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
   if (existing) {
@@ -1473,6 +1667,7 @@ app.post('/api/scrutiny/applications/:id/reopen', scrutinyAuth, (req, res) => {
   db.prepare('UPDATE applications SET status = ?, updated_at = datetime(\'now\') WHERE id = ?').run('Under Scrutiny', appRow.id)
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'Under Scrutiny', 'Application reopened to scrutiny for re-review', req.user.login_id)
+  queueWorkflowAudit(appRow.id, 'Scrutiny Review Reopened', req.user)
 
   const existing = db.prepare('SELECT id FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
   if (existing) {
@@ -1682,6 +1877,8 @@ app.post('/api/mom/applications/:id/convert', momAuth, async (req, res) => {
     )
   }
 
+  queueWorkflowAudit(appRow.id, 'MoM Generated', req.user)
+
   res.json({ ok: true, docxUrl: `/api/mom/applications/${appRow.id}/mom/docx`, pdfUrl: `/api/mom/applications/${appRow.id}/mom/pdf` })
 })
 
@@ -1701,6 +1898,9 @@ app.post('/api/mom/applications/:id/finalize', momAuth, (req, res) => {
   db.prepare(`UPDATE applications SET status = 'Finalized', updated_at = datetime('now') WHERE id = ?`).run(appRow.id)
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'Finalized', 'Minutes of Meeting finalized and locked', req.user.login_id)
+
+  queueWorkflowAudit(appRow.id, 'MoM Finalized', req.user)
+  queueMoMFinalizationAudit(appRow.id, momRecord.mom_pdf_path || momRecord.mom_docx_path, req.user)
 
   res.json({ ok: true, status: 'Finalized' })
 })
@@ -1890,6 +2090,29 @@ app.delete('/api/admin/sectors/:sectorId/params/:paramId', adminAuth, (req, res)
   const r = db.prepare('DELETE FROM sector_params WHERE id = ? AND sector_id = ?').run(req.params.paramId, req.params.sectorId)
   if (r.changes === 0) return res.status(404).json({ message: 'Parameter not found.' })
   res.json({ ok: true })
+})
+
+app.get('/api/admin/blockchain/audit', adminAuth, async (req, res) => {
+  const applicationRef = String(req.query.applicationId || '').trim()
+  const limit = Number(req.query.limit || 200)
+  const result = blockchainAudit.listAuditEvents({ applicationRef, limit })
+
+  let chainDocumentHash = null
+  if (applicationRef) {
+    try {
+      chainDocumentHash = await blockchainAudit.verifyDocumentHashFromChain(applicationRef)
+    } catch {
+      chainDocumentHash = null
+    }
+  }
+
+  res.json({
+    rows: result.rows,
+    totals: result.totals,
+    provider: result.provider,
+    network: result.network,
+    chainDocumentHash,
+  })
 })
 
 // ── Error Handler ─────────────────────────────────────────────────────────────
