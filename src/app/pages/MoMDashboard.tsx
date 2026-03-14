@@ -6,13 +6,14 @@ import {
   Loader2, FileText, CheckCircle2, XCircle, Clock, Lock, Download,
   AlertCircle, ChevronDown, RefreshCw, LogOut, Eye, Edit3, Save,
   Calendar, Users, ClipboardList, Shield, FileCheck, SendHorizonal,
-  CheckSquare, Info,
+  CheckSquare, Info, History,
 } from "lucide-react";
 import {
   fetchMoMQueue, fetchMoMApplication, fetchGistContent, saveGistDraft,
-  convertToMoM, finalizeMoM, downloadMomDocument,
+  convertToMoM, finalizeMoM, downloadMomDocument, fetchStatusHistory,
   type MoMQueueItem, type MoMApplicationDetail, type MoMRecord,
 } from "../services/mom";
+import { StatusHistoryModal } from "../components/StatusHistoryModal";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -731,6 +732,7 @@ export default function MoMDashboard() {
   const [filterSector, setFilterSector] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [sort, setSort] = useState("latest");
+  const [historyModal, setHistoryModal] = useState<{ id: number; ref: string } | null>(null);
 
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
@@ -864,7 +866,7 @@ export default function MoMDashboard() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs text-gray-400 font-mono">{item.application_id}</p>
+                        <p className="text-xs text-gray-800 font-mono">{item.application_id}</p>
                         <p className="text-sm font-semibold text-gray-800 truncate mt-0.5">{item.project_name}</p>
                         <p className="text-xs text-gray-500 mt-0.5">{item.owner_name}</p>
                         <p className="text-xs text-gray-400 mt-0.5">{item.sector_name} · Cat. {item.category}</p>
@@ -878,7 +880,15 @@ export default function MoMDashboard() {
                         ) : null}
                       </div>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">{fmtDate(item.updated_at)}</p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs text-gray-400">{fmtDate(item.updated_at)}</p>
+                      <button
+                        className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-[#7B1FA2]"
+                        onClick={(e) => { e.stopPropagation(); setHistoryModal({ id: item.id, ref: item.application_id }); }}
+                      >
+                        <History className="w-3 h-3" /> History
+                      </button>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -915,6 +925,15 @@ export default function MoMDashboard() {
           )}
         </AnimatePresence>
       </div>
+
+      {historyModal && (
+        <StatusHistoryModal
+          applicationId={historyModal.id}
+          applicationRef={historyModal.ref}
+          onClose={() => setHistoryModal(null)}
+          fetchHistory={fetchStatusHistory}
+        />
+      )}
     </div>
   );
 }

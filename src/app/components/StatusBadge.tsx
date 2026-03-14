@@ -10,28 +10,33 @@ export function StatusBadge({ status, type = "default" }: StatusBadgeProps) {
     warning: "bg-orange-100 text-orange-700",
     error: "bg-red-100 text-red-700",
     info: "bg-blue-100 text-blue-700",
+    purple: "bg-purple-100 text-purple-700",
+    teal: "bg-teal-100 text-teal-700",
   };
 
-  const statusColorMap: Record<string, string> = {
-    "Under Scrutiny": "info",
-    "EDS Raised": "warning",
-    Verified: "success",
-    Referred: "info",
-    "MoM Generated": "success",
-    Scheduled: "info",
-    Completed: "success",
-    "MoM Finalized": "default",
-    Active: "success",
+  const statusColorMap: Record<string, keyof typeof colorClasses> = {
     Draft: "default",
     Submitted: "info",
+    "Under Scrutiny": "warning",
+    "UnderScrutiny": "warning",
+    EDS: "error",
+    "EDS Raised": "error",
+    Referred: "purple",
+    MoMGenerated: "teal",
+    "MoM Generated": "teal",
     Finalized: "success",
+    "MoM Finalized": "success",
+    Verified: "success",
+    Scheduled: "info",
+    Completed: "success",
+    Active: "success",
   };
 
-  const colorType = statusColorMap[status] || type;
+  const colorType = statusColorMap[status] ?? type;
 
   return (
     <span
-      className={`px-3 py-1 rounded-full text-xs font-medium ${colorClasses[colorType]}`}
+      className={`px-3 py-1 rounded-full text-xs font-medium ${colorClasses[colorType] ?? colorClasses.default}`}
     >
       {status}
     </span>

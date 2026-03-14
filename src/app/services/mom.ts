@@ -199,6 +199,17 @@ export function momDocumentDownloadUrl(id: number, format: "docx" | "pdf"): stri
   return `${apiBase()}/mom/applications/${id}/mom/${format}`;
 }
 
+export type StatusHistoryEntry = {
+  status: string;
+  comment: string;
+  created_by: string;
+  created_at: string;
+};
+
+export async function fetchStatusHistory(id: number): Promise<StatusHistoryEntry[]> {
+  return momFetch<StatusHistoryEntry[]>("GET", `/applications/${id}/history`);
+}
+
 export async function downloadMomDocument(id: number, format: "docx" | "pdf", filename: string): Promise<void> {
   const token = getToken();
   const res = await fetch(`${apiBase()}/mom/applications/${id}/mom/${format}`, {

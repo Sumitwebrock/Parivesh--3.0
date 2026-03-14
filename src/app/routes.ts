@@ -8,10 +8,13 @@ import ProponentPayment from "./pages/ProponentPayment";
 import ProponentTrack from "./pages/ProponentTrack";
 import ProponentNotifications from "./pages/ProponentNotifications";
 import ScrutinyDashboard from "./pages/ScrutinyDashboard";
+import ScrutinyLogin from "./pages/ScrutinyLogin";
 import MoMDashboard from "./pages/MoMDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminLogin from "./pages/AdminLogin";
 import { AdminRoute } from "./components/AdminRoute";
+import { ScrutinyRoute, MomRoute } from "./components/ProtectedRoute";
+import Unauthorized from "./pages/Unauthorized";
 import About from "./pages/About";
 import Complaints from "./pages/Complaints";
 import EnvironmentalClearance from "./pages/EnvironmentalClearance";
@@ -107,12 +110,36 @@ export const router = createBrowserRouter([
   },
   {
     path: "/scrutiny",
-    Component: ScrutinyDashboard,
+    Component: ScrutinyRoute,
+    ErrorBoundary: ErrorBoundary,
+    children: [
+      {
+        index: true,
+        Component: ScrutinyDashboard,
+        ErrorBoundary: ErrorBoundary,
+      },
+    ],
+  },
+  {
+    path: "/scrutiny/login",
+    Component: ScrutinyLogin,
     ErrorBoundary: ErrorBoundary,
   },
   {
     path: "/mom",
-    Component: MoMDashboard,
+    Component: MomRoute,
+    ErrorBoundary: ErrorBoundary,
+    children: [
+      {
+        index: true,
+        Component: MoMDashboard,
+        ErrorBoundary: ErrorBoundary,
+      },
+    ],
+  },
+  {
+    path: "/unauthorized",
+    Component: Unauthorized,
     ErrorBoundary: ErrorBoundary,
   },
   {

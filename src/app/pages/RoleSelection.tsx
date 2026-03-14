@@ -33,7 +33,7 @@ export default function RoleSelection() {
       color: "bg-[#FF6B00]",
       hoverColor: "hover:bg-[#E65100]",
       description: "Review and verify applications",
-      path: "/scrutiny",
+      path: "/scrutiny/login",
     },
     {
       title: "MoM Team",

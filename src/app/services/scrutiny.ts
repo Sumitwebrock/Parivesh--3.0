@@ -14,6 +14,19 @@ function getToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
+function withToken(url: string): string {
+  const token = getToken();
+  if (!token) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
+function toApiUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return withToken(url);
+  const normalizedPath = url.startsWith("/") ? url : `/${url}`;
+  return withToken(`${apiBase()}${normalizedPath.replace(/^\/api/, "")}`);
+}
+
 function safeParse(raw: string): unknown | null {
   try {
     return JSON.parse(raw);
@@ -130,6 +143,12 @@ export type ScrutinyApplicationDetail = {
   documents: ScrutinyDocument[];
   payment: ScrutinyPayment;
   history: ScrutinyHistory[];
+  gistRow: {
+    id: number;
+    generated_by: string;
+    generated_at: string;
+    gist_content: string;
+  } | null;
   review: {
     id: number;
     review_data: Record<string, unknown>;
@@ -140,6 +159,33 @@ export type ScrutinyApplicationDetail = {
     locked: number;
   } | null;
 };
+
+export type ScrutinyVerificationDeficiency = {
+  type: "required_document" | "mandatory_field" | "data_completeness" | "data_correctness";
+  field: string;
+  message: string;
+};
+
+export type ScrutinyVerificationResult =
+  | {
+      ok: true;
+      result: "EDS";
+      status: "EDS";
+      deficiencyCount: number;
+      deficiencies: ScrutinyVerificationDeficiency[];
+      edsMessage: string;
+    }
+  | {
+      ok: true;
+      result: "VERIFIED";
+      status: "Under Scrutiny";
+      verified: true;
+      gist: {
+        generatedAt: string;
+        docxDownloadUrl: string;
+        pdfDownloadUrl: string;
+      };
+    };
 
 export async function fetchScrutinyQueue(filters: {
   status?: string;
@@ -180,17 +226,55 @@ export async function issueEds(id: number, payload: {
 }
 
 export async function generateGist(id: number): Promise<{ ok: true; gist: { generatedAt: string; docxDownloadUrl: string; pdfDownloadUrl: string } }> {
-  return scrutinyFetch("POST", `/scrutiny/applications/${id}/gist/generate`);
+  const result = await scrutinyFetch<{ ok: true; gist: { generatedAt: string; docxDownloadUrl: string; pdfDownloadUrl: string } }>("POST", `/scrutiny/applications/${id}/gist/generate`);
+  return {
+    ...result,
+    gist: {
+      ...result.gist,
+      docxDownloadUrl: toApiUrl(result.gist.docxDownloadUrl),
+      pdfDownloadUrl: toApiUrl(result.gist.pdfDownloadUrl),
+    },
+  };
+}
+
+export async function runScrutinyVerification(id: number): Promise<ScrutinyVerificationResult> {
+  const result = await scrutinyFetch<ScrutinyVerificationResult>("POST", `/scrutiny/applications/${id}/verify`);
+  if (result.result === "VERIFIED") {
+    return {
+      ...result,
+      gist: {
+        ...result.gist,
+        docxDownloadUrl: toApiUrl(result.gist.docxDownloadUrl),
+        pdfDownloadUrl: toApiUrl(result.gist.pdfDownloadUrl),
+      },
+    };
+  }
+  return result;
 }
 
 export async function referToMeeting(id: number): Promise<{ ok: true; status: "Referred" }> {
   return scrutinyFetch<{ ok: true; status: "Referred" }>("POST", `/scrutiny/applications/${id}/refer`);
 }
 
+export async function reopenToScrutiny(id: number): Promise<{ ok: true; status: "Under Scrutiny" }> {
+  return scrutinyFetch<{ ok: true; status: "Under Scrutiny" }>("POST", `/scrutiny/applications/${id}/reopen`);
+}
+
+export type StatusHistoryEntry = {
+  status: string;
+  comment: string;
+  created_by: string;
+  created_at: string;
+};
+
+export async function fetchStatusHistory(id: number): Promise<StatusHistoryEntry[]> {
+  return scrutinyFetch<StatusHistoryEntry[]>("GET", `/applications/${id}/history`);
+}
+
 export function scrutinyDocumentDownloadUrl(docId: number): string {
-  return `${apiBase()}/scrutiny/documents/${docId}/download`;
+  return withToken(`${apiBase()}/scrutiny/documents/${docId}/download`);
 }
 
 export function scrutinyGistDownloadUrl(id: number, format: "docx" | "pdf"): string {
-  return `${apiBase()}/scrutiny/applications/${id}/gist/${format}`;
+  return withToken(`${apiBase()}/scrutiny/applications/${id}/gist/${format}`);
 }
