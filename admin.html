@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parivesh 3.0 — Admin Panel</title>
+  <script>
+    window.location.replace('/admin/login');
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --green: #1a5c1a;
+      --orange: #ff6b00;
+      --blue: #003087;
+    }
+    .btn-primary   { background: #1a5c1a; color: #fff; }
+    .btn-primary:hover { background: #154d15; }
+    .btn-danger    { background: #dc2626; color: #fff; }
+    .btn-danger:hover  { background: #b91c1c; }
+    .btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .tab-active    { border-bottom: 3px solid #1a5c1a; color: #1a5c1a; font-weight: 600; }
+    .badge-A       { background: #dcfce7; color: #166534; }
+    .badge-B1      { background: #dbeafe; color: #1e40af; }
+    .badge-B2      { background: #fef9c3; color: #854d0e; }
+    .spinner {
+      width: 24px; height: 24px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #1a5c1a;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 50;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800 min-h-screen">
+
+<!-- ── LOGIN SCREEN ──────────────────────────────────────────────────────── -->
+<div id="login-screen" class="flex items-center justify-center min-h-screen">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-3" style="background:#1a5c1a">
+        <svg class="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 11c0-1.1.9-2 2-2s2 .9 2 2v1h-4v-1zm-6 8V10a6 6 0 1112 0v9H6z"/>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold" style="color:#1a5c1a">Parivesh Admin</h1>
+      <p class="text-sm text-gray-500 mt-1">Secure Administrator Login</p>
+    </div>
+    <form id="login-form" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-1" for="inp-username">Username</label>
+        <input id="inp-username" type="text" autocomplete="username" required
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700"
+          placeholder="admin" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1" for="inp-password">Password</label>
+        <input id="inp-password" type="password" autocomplete="current-password" required
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700"
+          placeholder="••••••••" />
+      </div>
+      <div id="login-error" class="hidden text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
+      <button type="submit"
+        class="btn-primary w-full py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+        <span id="login-btn-text">Sign In</span>
+        <span id="login-spinner" class="spinner hidden"></span>
+      </button>
+    </form>
+    <p class="text-center text-xs text-gray-400 mt-6">Default: admin / Admin@12345</p>
+  </div>
+</div>
+
+<!-- ── DASHBOARD ─────────────────────────────────────────────────────────── -->
+<div id="dashboard" class="hidden min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between px-6 py-3 shadow-sm" style="background:#1a5c1a">
+    <div class="flex items-center gap-3">
+      <span class="text-white font-bold text-lg tracking-wide">PARIVESH 3.0</span>
+      <span class="text-green-200 text-sm">Admin Panel</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-green-100 text-sm" id="admin-username-display"></span>
+      <button onclick="logout()"
+        class="bg-white text-green-800 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-50 transition-colors">
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- Tab Navigation -->
+  <nav class="bg-white border-b border-gray-200 px-6">
+    <div class="flex gap-0">
+      <button onclick="switchTab('users')" id="tab-users"
+        class="tab-btn px-5 py-4 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-3 border-transparent transition-colors">
+        👥 Users
+      </button>
+      <button onclick="switchTab('templates')" id="tab-templates"
+        class="tab-btn px-5 py-4 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-3 border-transparent transition-colors">
+        📄 Gist Templates
+      </button>
+      <button onclick="switchTab('sectors')" id="tab-sectors"
+        class="tab-btn px-5 py-4 text-sm font-medium text-gray-500 hover:text-gray-700 border-b-3 border-transparent transition-colors">
+        🏭 Sectors &amp; Parameters
+      </button>
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <main class="flex-1 p-6 max-w-7xl mx-auto w-full">
+
+    <!-- ── USERS TAB ───────────────────────────────────────────────────── -->
+    <section id="content-users" class="hidden">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-xl font-semibold">User Management</h2>
+        <button onclick="openCreateUserModal()" class="btn-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+          + Create User
+        </button>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div id="users-loading" class="p-8 text-center"><span class="spinner"></span></div>
+        <div id="users-empty" class="hidden p-8 text-center text-gray-400">No users found.</div>
+        <div id="users-error" class="hidden p-4 text-red-600 text-sm"></div>
+        <table id="users-table" class="hidden w-full text-sm">
+          <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+            <tr>
+              <th class="px-4 py-3 text-left">Name</th>
+              <th class="px-4 py-3 text-left">Login ID</th>
+              <th class="px-4 py-3 text-left">Email</th>
+              <th class="px-4 py-3 text-left">Role Assignment</th>
+              <th class="px-4 py-3 text-left">Status</th>
+              <th class="px-4 py-3 text-left">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── TEMPLATES TAB ───────────────────────────────────────────────── -->
+    <section id="content-templates" class="hidden">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-xl font-semibold">Gist Templates</h2>
+        <button onclick="openUploadModal()" class="btn-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+          + Upload Template
+        </button>
+      </div>
+      <div id="templates-loading" class="bg-white rounded-xl shadow-sm p-8 text-center"><span class="spinner"></span></div>
+      <div id="templates-empty" class="hidden bg-white rounded-xl shadow-sm p-8 text-center text-gray-400">No templates uploaded yet.</div>
+      <div id="templates-error" class="hidden p-4 text-red-600 text-sm"></div>
+      <div id="templates-grid" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </section>
+
+    <!-- ── SECTORS TAB ─────────────────────────────────────────────────── -->
+    <section id="content-sectors" class="hidden">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-xl font-semibold">Sectors &amp; Parameters</h2>
+        <button onclick="openAddSectorModal()" class="btn-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+          + Add Sector
+        </button>
+      </div>
+      <div id="sectors-loading" class="bg-white rounded-xl shadow-sm p-8 text-center"><span class="spinner"></span></div>
+      <div id="sectors-empty" class="hidden bg-white rounded-xl shadow-sm p-8 text-center text-gray-400">No sectors found.</div>
+      <div id="sectors-error" class="hidden p-4 text-red-600 text-sm"></div>
+      <div id="sectors-list" class="hidden space-y-3"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ── MODALS ─────────────────────────────────────────────────────────────── -->
+
+<!-- Create User Modal -->
+<div id="modal-create-user" class="modal-overlay hidden">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+    <h3 class="text-lg font-semibold mb-4">Create New User</h3>
+    <form id="form-create-user" class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="block text-xs font-medium mb-1">Full Name *</label>
+          <input name="fullName" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Login ID *</label>
+          <input name="loginId" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Email *</label>
+          <input name="email" type="email" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Mobile</label>
+          <input name="mobile" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Password *</label>
+          <input name="password" type="password" required minlength="8" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Organization</label>
+          <input name="organization" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Assigned Role</label>
+          <select name="assignedRole" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none">
+            <option value="proponent">Proponent</option>
+            <option value="scrutiny">Scrutiny</option>
+            <option value="mom">MoM</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+      <div id="create-user-error" class="hidden text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModal('modal-create-user')" class="btn-secondary flex-1 py-2 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+        <button type="submit" class="btn-primary flex-1 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
+          <span>Create User</span>
+          <span id="create-user-spinner" class="spinner hidden" style="width:16px;height:16px;border-width:2px"></span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Upload Template Modal -->
+<div id="modal-upload-template" class="modal-overlay hidden">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+    <h3 class="text-lg font-semibold mb-4">Upload Gist Template</h3>
+    <form id="form-upload-template" class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium mb-1">Template Name *</label>
+        <input name="name" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" placeholder="e.g. Standard EIA Template" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1">Category *</label>
+        <select name="category" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none">
+          <option value="">-- Select --</option>
+          <option value="A">Category A</option>
+          <option value="B1">Category B1</option>
+          <option value="B2">Category B2</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1">Description</label>
+        <textarea name="description" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none resize-none" placeholder="Optional description..."></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1">File * (.doc, .docx, .pdf, max 10 MB)</label>
+        <input name="file" type="file" accept=".doc,.docx,.pdf" required
+          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+      </div>
+      <div id="upload-template-error" class="hidden text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModal('modal-upload-template')" class="btn-secondary flex-1 py-2 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+        <button type="submit" class="btn-primary flex-1 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
+          <span>Upload</span>
+          <span id="upload-template-spinner" class="spinner hidden" style="width:16px;height:16px;border-width:2px"></span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Sector Modal -->
+<div id="modal-add-sector" class="modal-overlay hidden">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+    <h3 class="text-lg font-semibold mb-4">Add Sector</h3>
+    <form id="form-add-sector" class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium mb-1">Sector Name *</label>
+        <input name="name" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1">Description</label>
+        <textarea name="description" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none resize-none"></textarea>
+      </div>
+      <div id="add-sector-error" class="hidden text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModal('modal-add-sector')" class="btn-secondary flex-1 py-2 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+        <button type="submit" class="btn-primary flex-1 py-2 rounded-lg text-sm font-medium transition-colors">Add Sector</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Parameter Modal -->
+<div id="modal-add-param" class="modal-overlay hidden">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+    <h3 class="text-lg font-semibold mb-1">Add Parameter</h3>
+    <p class="text-sm text-gray-500 mb-4" id="add-param-sector-name"></p>
+    <form id="form-add-param" class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium mb-1">Parameter Label *</label>
+        <input name="paramLabel" required class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none" placeholder="e.g. Forest Area (ha)" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium mb-1">Input Type</label>
+          <select name="paramType" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-700 focus:outline-none">
+            <option value="text">Text</option>
+            <option value="number">Number</option>
+            <option value="date">Date</option>
+            <option value="dropdown">Dropdown</option>
+            <option value="file">File Upload</option>
+            <option value="checkbox">Checkbox</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 mt-5">
+          <input name="required" type="checkbox" id="param-required-chk" class="rounded border-gray-300" />
+          <label for="param-required-chk" class="text-sm">Required</label>
+        </div>
+      </div>
+      <div id="add-param-error" class="hidden text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModal('modal-add-param')" class="btn-secondary flex-1 py-2 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+        <button type="submit" class="btn-primary flex-1 py-2 rounded-lg text-sm font-medium transition-colors">Add Parameter</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-5 right-5 bg-gray-900 text-white text-sm rounded-lg px-4 py-3 shadow-xl hidden z-50 max-w-xs"></div>
+
+<script>
+;(() => {
+  // ── State ────────────────────────────────────────────────────────────────
+  let adminToken = sessionStorage.getItem('parivesh_admin_token')
+  let currentTab = 'users'
+  let addParamSectorId = null
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const $ = (sel) => document.querySelector(sel)
+  const $$ = (sel) => document.querySelectorAll(sel)
+
+  const toast = (msg, ok = true) => {
+    const el = $('#toast')
+    el.textContent = msg
+    el.className = `fixed bottom-5 right-5 text-sm rounded-lg px-4 py-3 shadow-xl z-50 max-w-xs ${ok ? 'bg-gray-900 text-white' : 'bg-red-600 text-white'}`
+    el.classList.remove('hidden')
+    clearTimeout(el._t)
+    el._t = setTimeout(() => el.classList.add('hidden'), 3500)
+  }
+
+  const showError = (id, msg) => {
+    const el = document.getElementById(id)
+    el.textContent = msg
+    el.classList.remove('hidden')
+  }
+
+  const hideError = (id) => {
+    const el = document.getElementById(id)
+    if (el) { el.textContent = ''; el.classList.add('hidden') }
+  }
+
+  const setLoading = (btnTextId, spinnerId, loading) => {
+    const s = document.getElementById(spinnerId)
+    if (s) s.classList.toggle('hidden', !loading)
+  }
+
+  const API_BASE = (() => {
+    const DEFAULT_ADMIN_API_ORIGIN = 'http://localhost:8787'
+    const { protocol, hostname, port, origin } = window.location
+    if (protocol === 'file:') return `${DEFAULT_ADMIN_API_ORIGIN}/api`
+    if (port === '8787') return `${origin}/api`
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return `${DEFAULT_ADMIN_API_ORIGIN}/api`
+    return '/api'
+  })()
+
+  const api = async (method, path, body, isFormData = false) => {
+    const opts = { method, headers: {} }
+    if (adminToken) opts.headers['Authorization'] = `Bearer ${adminToken}`
+    if (body && !isFormData) {
+      opts.headers['Content-Type'] = 'application/json'
+      opts.body = JSON.stringify(body)
+    } else if (body) {
+      opts.body = body
+    }
+    const res = await fetch(`${API_BASE}${path}`, opts)
+    if (res.headers.get('content-type')?.includes('application/json')) {
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Request failed')
+      return data
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res
+  }
+
+  window.closeModal = (id) => {
+    document.getElementById(id).classList.add('hidden')
+  }
+
+  // Close modal on overlay click
+  $$('.modal-overlay').forEach(m => m.addEventListener('click', e => {
+    if (e.target === m) m.classList.add('hidden')
+  }))
+
+  // ── Auth ─────────────────────────────────────────────────────────────────
+  const showLogin = () => {
+    $('#login-screen').classList.remove('hidden')
+    $('#dashboard').classList.add('hidden')
+  }
+
+  const showDashboard = (username) => {
+    $('#login-screen').classList.add('hidden')
+    $('#dashboard').classList.remove('hidden')
+    if (username) $('#admin-username-display').textContent = `👤 ${username}`
+    switchTab('users')
+  }
+
+  window.logout = () => {
+    sessionStorage.removeItem('parivesh_admin_token')
+    adminToken = null
+    showLogin()
+  }
+
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    hideError('login-error')
+    setLoading(null, 'login-spinner', true)
+    const username = $('#inp-username').value.trim()
+    const password = $('#inp-password').value
+    try {
+      const data = await api('POST', '/admin/login', { username, password })
+      adminToken = data.token
+      sessionStorage.setItem('parivesh_admin_token', adminToken)
+      showDashboard(data.username)
+    } catch (err) {
+      showError('login-error', err.message)
+    } finally {
+      setLoading(null, 'login-spinner', false)
+    }
+  })
+
+  // ── Tabs ─────────────────────────────────────────────────────────────────
+  window.switchTab = (tab) => {
+    currentTab = tab
+    $$('.tab-btn').forEach(btn => btn.classList.remove('tab-active'))
+    document.getElementById(`tab-${tab}`).classList.add('tab-active')
+    $$('section[id^="content-"]').forEach(s => s.classList.add('hidden'))
+    document.getElementById(`content-${tab}`).classList.remove('hidden')
+    if (tab === 'users') loadUsers()
+    if (tab === 'templates') loadTemplates()
+    if (tab === 'sectors') loadSectors()
+  }
+
+  // ── USERS ─────────────────────────────────────────────────────────────────
+  const loadUsers = async () => {
+    $('#users-loading').classList.remove('hidden')
+    $('#users-table').classList.add('hidden')
+    $('#users-empty').classList.add('hidden')
+    hideError('users-error')
+    try {
+      const users = await api('GET', '/admin/users')
+      $('#users-loading').classList.add('hidden')
+      if (!users.length) { $('#users-empty').classList.remove('hidden'); return }
+      const tbody = $('#users-tbody')
+      tbody.innerHTML = users.map(u => `
+        <tr class="hover:bg-gray-50" id="user-row-${u.id}">
+          <td class="px-4 py-3 font-medium">${esc(u.fullName)}</td>
+          <td class="px-4 py-3 text-gray-500">${esc(u.loginId)}</td>
+          <td class="px-4 py-3 text-gray-500">${esc(u.email)}</td>
+          <td class="px-4 py-3">
+            <select onchange="changeUserRole(${u.id}, this.value)"
+              class="border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-700">
+              ${['proponent','scrutiny','mom','admin'].map(r =>
+                `<option value="${r}" ${u.assignedRole === r ? 'selected' : ''}>${cap(r)}</option>`).join('')}
+            </select>
+          </td>
+          <td class="px-4 py-3">
+            <button onclick="toggleUserStatus(${u.id}, '${u.accountStatus}')"
+              class="text-xs px-2.5 py-1 rounded-full font-medium ${u.accountStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+              ${u.accountStatus === 'active' ? 'Active' : 'Suspended'}
+            </button>
+          </td>
+          <td class="px-4 py-3">
+            <button onclick="deleteUser(${u.id}, '${esc(u.fullName)}')"
+              class="text-xs text-red-600 hover:underline font-medium">Delete</button>
+          </td>
+        </tr>`).join('')
+      $('#users-table').classList.remove('hidden')
+    } catch (err) {
+      $('#users-loading').classList.add('hidden')
+      showError('users-error', err.message)
+    }
+  }
+
+  window.changeUserRole = async (id, assignedRole) => {
+    try {
+      await api('PATCH', `/admin/users/${id}/role`, { assignedRole })
+      toast('Role updated.')
+    } catch (err) { toast(err.message, false) }
+  }
+
+  window.toggleUserStatus = async (id, current) => {
+    const status = current === 'active' ? 'suspended' : 'active'
+    try {
+      await api('PATCH', `/admin/users/${id}/status`, { status })
+      toast(`User ${status}.`)
+      loadUsers()
+    } catch (err) { toast(err.message, false) }
+  }
+
+  window.deleteUser = async (id, name) => {
+    if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return
+    try {
+      await api('DELETE', `/admin/users/${id}`)
+      toast('User deleted.')
+      loadUsers()
+    } catch (err) { toast(err.message, false) }
+  }
+
+  window.openCreateUserModal = () => {
+    document.getElementById('form-create-user').reset()
+    hideError('create-user-error')
+    document.getElementById('modal-create-user').classList.remove('hidden')
+  }
+
+  document.getElementById('form-create-user').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    hideError('create-user-error')
+    setLoading(null, 'create-user-spinner', true)
+    const fd = new FormData(e.target)
+    const body = Object.fromEntries(fd.entries())
+    try {
+      await api('POST', '/admin/users', body)
+      closeModal('modal-create-user')
+      toast('User created successfully.')
+      loadUsers()
+    } catch (err) {
+      showError('create-user-error', err.message)
+    } finally {
+      setLoading(null, 'create-user-spinner', false)
+    }
+  })
+
+  // ── TEMPLATES ─────────────────────────────────────────────────────────────
+  const loadTemplates = async () => {
+    $('#templates-loading').classList.remove('hidden')
+    $('#templates-grid').classList.add('hidden')
+    $('#templates-empty').classList.add('hidden')
+    hideError('templates-error')
+    try {
+      const templates = await api('GET', '/admin/templates')
+      $('#templates-loading').classList.add('hidden')
+      if (!templates.length) { $('#templates-empty').classList.remove('hidden'); return }
+      const grid = $('#templates-grid')
+      grid.innerHTML = templates.map(t => {
+        const badgeClass = t.category === 'A' ? 'badge-A' : t.category === 'B1' ? 'badge-B1' : 'badge-B2'
+        const ext = t.original_name.split('.').pop().toUpperCase()
+        const extColor = ext === 'PDF' ? 'text-red-600 bg-red-50' : 'text-blue-700 bg-blue-50'
+        return `
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <h4 class="font-semibold text-sm truncate">${esc(t.name)}</h4>
+                <p class="text-xs text-gray-400 mt-0.5">${esc(t.original_name)}</p>
+              </div>
+              <span class="${badgeClass} text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">Cat ${esc(t.category)}</span>
+            </div>
+            ${t.description ? `<p class="text-xs text-gray-500 line-clamp-2">${esc(t.description)}</p>` : ''}
+            <div class="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
+              <span class="${extColor} text-xs font-semibold px-2 py-0.5 rounded">${ext}</span>
+              <div class="flex gap-2">
+                <a href="/api/admin/templates/${t.id}/download" target="_blank"
+                  onclick="event.preventDefault(); downloadTemplate(${t.id}, '${esc(t.original_name)}')"
+                  class="text-xs text-blue-600 hover:underline font-medium">Download</a>
+                <button onclick="deleteTemplate(${t.id}, '${esc(t.name)}')"
+                  class="text-xs text-red-600 hover:underline font-medium">Delete</button>
+              </div>
+            </div>
+          </div>`
+      }).join('')
+      grid.classList.remove('hidden')
+    } catch (err) {
+      $('#templates-loading').classList.add('hidden')
+      showError('templates-error', err.message)
+    }
+  }
+
+  window.downloadTemplate = async (id, originalName) => {
+    const res = await fetch(`${API_BASE}/admin/templates/${id}/download`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    })
+    if (!res.ok) { toast('Download failed.', false); return }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = originalName; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  window.deleteTemplate = async (id, name) => {
+    if (!confirm(`Delete template "${name}"? This cannot be undone.`)) return
+    try {
+      await api('DELETE', `/admin/templates/${id}`)
+      toast('Template deleted.')
+      loadTemplates()
+    } catch (err) { toast(err.message, false) }
+  }
+
+  window.openUploadModal = () => {
+    document.getElementById('form-upload-template').reset()
+    hideError('upload-template-error')
+    document.getElementById('modal-upload-template').classList.remove('hidden')
+  }
+
+  document.getElementById('form-upload-template').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    hideError('upload-template-error')
+    setLoading(null, 'upload-template-spinner', true)
+    const fd = new FormData(e.target)
+    try {
+      await api('POST', '/admin/templates', fd, true)
+      closeModal('modal-upload-template')
+      toast('Template uploaded successfully.')
+      loadTemplates()
+    } catch (err) {
+      showError('upload-template-error', err.message)
+    } finally {
+      setLoading(null, 'upload-template-spinner', false)
+    }
+  })
+
+  // ── SECTORS ───────────────────────────────────────────────────────────────
+  const loadSectors = async () => {
+    $('#sectors-loading').classList.remove('hidden')
+    $('#sectors-list').classList.add('hidden')
+    $('#sectors-empty').classList.add('hidden')
+    hideError('sectors-error')
+    try {
+      const sectors = await api('GET', '/admin/sectors')
+      $('#sectors-loading').classList.add('hidden')
+      if (!sectors.length) { $('#sectors-empty').classList.remove('hidden'); return }
+      renderSectors(sectors)
+    } catch (err) {
+      $('#sectors-loading').classList.add('hidden')
+      showError('sectors-error', err.message)
+    }
+  }
+
+  const renderSectors = (sectors) => {
+    const list = $('#sectors-list')
+    list.innerHTML = sectors.map(s => `
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-gray-50"
+          onclick="toggleSectorExpand(${s.id})">
+          <div class="flex-1 min-w-0">
+            <h3 class="font-semibold text-sm">${esc(s.name)}</h3>
+            ${s.description ? `<p class="text-xs text-gray-400 mt-0.5 truncate">${esc(s.description)}</p>` : ''}
+          </div>
+          <div class="flex items-center gap-3 ml-4 flex-shrink-0">
+            <span class="text-xs text-gray-400">${s.params.length} param${s.params.length !== 1 ? 's' : ''}</span>
+            <button onclick="event.stopPropagation(); openAddParamModal(${s.id}, '${esc(s.name)}')"
+              class="text-xs text-green-700 font-medium hover:underline">+ Param</button>
+            <button onclick="event.stopPropagation(); deleteSector(${s.id}, '${esc(s.name)}')"
+              class="text-xs text-red-600 font-medium hover:underline">Delete</button>
+            <svg id="chevron-${s.id}" class="w-4 h-4 text-gray-400 transition-transform"
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </div>
+        </div>
+        <div id="sector-params-${s.id}" class="hidden border-t border-gray-100 px-5 pb-4 pt-3">
+          ${s.params.length === 0
+            ? `<p class="text-xs text-gray-400 py-2">No parameters defined yet. Click "+ Param" to add one.</p>`
+            : `<div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead><tr class="text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                    <th class="py-2 text-left font-medium">Label</th>
+                    <th class="py-2 text-left font-medium">Type</th>
+                    <th class="py-2 text-left font-medium">Required</th>
+                    <th class="py-2 text-left font-medium">Action</th>
+                  </tr></thead>
+                  <tbody class="divide-y divide-gray-50">
+                    ${s.params.map(p => `
+                      <tr class="hover:bg-gray-50">
+                        <td class="py-2 pr-4">${esc(p.param_label)}</td>
+                        <td class="py-2 pr-4 capitalize text-gray-500">${esc(p.param_type)}</td>
+                        <td class="py-2 pr-4">
+                          <span class="${p.required ? 'text-red-600 font-semibold' : 'text-gray-400'}">${p.required ? 'Yes' : 'No'}</span>
+                        </td>
+                        <td class="py-2">
+                          <button onclick="deleteParam(${s.id}, ${p.id})" class="text-red-500 hover:underline">Remove</button>
+                        </td>
+                      </tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>`
+          }
+        </div>
+      </div>`).join('')
+    list.classList.remove('hidden')
+  }
+
+  window.toggleSectorExpand = (id) => {
+    const panel = document.getElementById(`sector-params-${id}`)
+    const chevron = document.getElementById(`chevron-${id}`)
+    const hidden = panel.classList.toggle('hidden')
+    chevron.style.transform = hidden ? '' : 'rotate(180deg)'
+  }
+
+  window.openAddSectorModal = () => {
+    document.getElementById('form-add-sector').reset()
+    hideError('add-sector-error')
+    document.getElementById('modal-add-sector').classList.remove('hidden')
+  }
+
+  document.getElementById('form-add-sector').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    hideError('add-sector-error')
+    const fd = new FormData(e.target)
+    try {
+      await api('POST', '/admin/sectors', Object.fromEntries(fd.entries()))
+      closeModal('modal-add-sector')
+      toast('Sector added.')
+      loadSectors()
+    } catch (err) {
+      showError('add-sector-error', err.message)
+    }
+  })
+
+  window.deleteSector = async (id, name) => {
+    if (!confirm(`Delete sector "${name}" and all its parameters? This cannot be undone.`)) return
+    try {
+      await api('DELETE', `/admin/sectors/${id}`)
+      toast('Sector deleted.')
+      loadSectors()
+    } catch (err) { toast(err.message, false) }
+  }
+
+  window.openAddParamModal = (sectorId, sectorName) => {
+    addParamSectorId = sectorId
+    document.getElementById('form-add-param').reset()
+    document.getElementById('add-param-sector-name').textContent = `Sector: ${sectorName}`
+    hideError('add-param-error')
+    document.getElementById('modal-add-param').classList.remove('hidden')
+  }
+
+  document.getElementById('form-add-param').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    hideError('add-param-error')
+    const fd = new FormData(e.target)
+    const body = {
+      paramLabel: fd.get('paramLabel'),
+      paramType: fd.get('paramType'),
+      required: fd.get('required') === 'on',
+    }
+    try {
+      await api('POST', `/admin/sectors/${addParamSectorId}/params`, body)
+      closeModal('modal-add-param')
+      toast('Parameter added.')
+      loadSectors()
+    } catch (err) {
+      showError('add-param-error', err.message)
+    }
+  })
+
+  window.deleteParam = async (sectorId, paramId) => {
+    if (!confirm('Remove this parameter?')) return
+    try {
+      await api('DELETE', `/admin/sectors/${sectorId}/params/${paramId}`)
+      toast('Parameter removed.')
+      loadSectors()
+    } catch (err) { toast(err.message, false) }
+  }
+
+  // ── Tiny utils ────────────────────────────────────────────────────────────
+  const esc = (str) => String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1)
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────────
+  if (adminToken) {
+    // Verify token is still valid before showing dashboard
+    fetch('/api/admin/users', { headers: { Authorization: `Bearer ${adminToken}` } })
+      .then(r => {
+        if (r.ok) {
+          const stored = sessionStorage.getItem('parivesh_admin_username') || 'admin'
+          showDashboard(stored)
+        } else {
+          sessionStorage.removeItem('parivesh_admin_token')
+          adminToken = null
+          showLogin()
+        }
+      })
+      .catch(() => showLogin())
+  } else {
+    showLogin()
+  }
+
+  // Store username on login (patch the login handler above after token is set)
+  const origLoginSubmit = $('#login-form').onsubmit
+  $('#login-form').addEventListener('submit', (e) => {
+    const username = $('#inp-username').value.trim()
+    if (username) sessionStorage.setItem('parivesh_admin_username', username)
+  })
+})()
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+
+  <!DOCTYPE html>
+  <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Parivesh 3.0</title>
+    </head>
+
+    <body>
+      <div id="root"></div>
+      <script type="module" src="/src/main.tsx"></script>
+      <script>
+        ;(() => {
+          const AUTH_USER_KEY = 'parivesh_auth_user'
+
+          const getDisplayName = () => {
+            try {
+              const raw = localStorage.getItem(AUTH_USER_KEY)
+              if (!raw) return ''
+              const user = JSON.parse(raw)
+              if (!user || typeof user !== 'object') return ''
+
+              const candidates = [user.fullName, user.name, user.loginId, user.username]
+              const selected = candidates.find((value) => typeof value === 'string' && value.trim())
+              return (selected || '').trim()
+            } catch {
+              return ''
+            }
+          }
+
+          const getInitials = (name) => {
+            const parts = String(name)
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean)
+            if (!parts.length) return ''
+            if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+            return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase()
+          }
+
+          const bindTopNavRedirects = () => {
+            const routeFromLabel = (label) => {
+              const text = label.toLowerCase()
+              if (text.includes('home') || text.includes('होम')) return '/'
+              if (text.includes('about') || text.includes('हमारे बारे में')) return '/about'
+              if (text.includes('clearances') || text.includes('अनुमति')) return '/clearance/environmental'
+              if (text.includes('downloads') || text.includes('डाउनलोड')) return '/downloads'
+              if (text.includes('guide') || text.includes('गाइड')) return '/guide'
+              return ''
+            }
+
+            const navButtons = document.querySelectorAll('nav button')
+            navButtons.forEach((button) => {
+              if (!(button instanceof HTMLButtonElement)) return
+              if (button.dataset.navRedirectBound === '1') return
+
+              const label = (button.textContent || '').replace(/\s+/g, ' ').trim()
+              const route = routeFromLabel(label)
+              if (!route) return
+
+              button.dataset.navRedirectBound = '1'
+              button.addEventListener('click', () => {
+                if (window.location.pathname !== route) {
+                  window.location.assign(route)
+                }
+              })
+            })
+          }
+
+          const applyName = () => {
+            const displayName = getDisplayName()
+            if (!displayName) return
+            const firstName = displayName.split(/\s+/)[0] || displayName
+
+            // Update the left profile card name shown in the proponent dashboard.
+            const sidebarNameEl = document.querySelector('.w-64 .font-semibold.text-sm')
+            if (sidebarNameEl) {
+              const text = (sidebarNameEl.textContent || '').trim()
+              if (text === 'Ramesh Patel' || text === 'Ramesh') {
+                sidebarNameEl.textContent = displayName
+              }
+            }
+
+            const sidebarAvatarEl = document.querySelector('.w-64 .w-12.h-12')
+            if (sidebarAvatarEl) {
+              const avatarText = (sidebarAvatarEl.textContent || '').trim()
+              if (avatarText === 'RP' || avatarText === 'R') {
+                sidebarAvatarEl.textContent = getInitials(displayName)
+              }
+            }
+
+            // Update greeting text such as "Welcome back, Ramesh".
+            const headingEls = document.querySelectorAll('h1, h2, h3, p, span, div')
+            headingEls.forEach((el) => {
+              if (!(el instanceof HTMLElement)) return
+              const text = (el.textContent || '').trim()
+              if (text === 'Welcome back, Ramesh' || text === 'Welcome back, Ramesh Patel') {
+                el.textContent = `Welcome back, ${firstName}`
+              }
+              if (text === 'Ramesh Patel') {
+                el.textContent = displayName
+              }
+            })
+          }
+
+          const observer = new MutationObserver(() => applyName())
+          observer.observe(document.body, { childList: true, subtree: true })
+
+          window.addEventListener('storage', applyName)
+          bindTopNavRedirects()
+          applyName()
+
+          const navObserver = new MutationObserver(() => bindTopNavRedirects())
+          navObserver.observe(document.body, { childList: true, subtree: true })
+        })()
+      </script>
+    </body>
+  </html>
+  
