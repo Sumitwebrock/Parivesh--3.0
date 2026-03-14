@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 import multer from 'multer'
 import PDFDocument from 'pdfkit'
 import { Document as WordDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
+import { createMomRoutes } from './routes/momRoutes.js'
 
 dotenv.config()
 
@@ -558,6 +559,9 @@ app.use((_req, res, next) => {
   if (_req.method === 'OPTIONS') return res.sendStatus(204)
   next()
 })
+
+app.use('/uploads', express.static(uploadsDir))
+app.use('/api/mom', ...momAuth, createMomRoutes({ db, uploadsDir }))
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'auth-api' }))
@@ -1413,7 +1417,7 @@ app.get('/api/scrutiny/applications/:id/gist/:format', scrutinyAuth, (req, res) 
   res.download(filePath, `meeting_gist_${appRow.application_id}.${format}`)
 })
 
-app.post('/api/scrutiny/applications/:id/refer', scrutinyAuth, (req, res) => {
+app.post('/api/scrutiny/applications/:id/refer', scrutinyAuth, async (req, res) => {
   const appRow = db.prepare('SELECT * FROM applications WHERE id = ?').get(req.params.id)
   if (!appRow) return res.status(404).json({ message: 'Application not found.' })
   if (hasLockedScrutinyReview(appRow.id, appRow.status) || ['Referred', 'Finalized'].includes(appRow.status)) {
@@ -1428,6 +1432,16 @@ app.post('/api/scrutiny/applications/:id/refer', scrutinyAuth, (req, res) => {
   const payment = db.prepare('SELECT * FROM application_payments WHERE application_id = ? ORDER BY id DESC LIMIT 1').get(appRow.id)
   if (!payment || !['Verified', 'Pending Verification'].includes(payment.status)) {
     return res.status(400).json({ message: 'Payment must be at least Pending Verification before referral.' })
+  }
+
+  const existingGist = db.prepare('SELECT id FROM scrutiny_gists WHERE application_id = ?').get(appRow.id)
+  if (!existingGist) {
+    try {
+      await generateAndStoreScrutinyGist(appRow.id, req.user.login_id)
+    } catch (error) {
+      console.error('[PARIVESH] Failed to auto-generate scrutiny gist before referral', error)
+      return res.status(500).json({ message: 'Unable to refer application because GIST generation failed.' })
+    }
   }
 
   db.prepare('UPDATE applications SET status = ?, updated_at = datetime(\'now\') WHERE id = ?').run('Referred', appRow.id)
@@ -1881,7 +1895,7 @@ app.delete('/api/admin/sectors/:sectorId/params/:paramId', adminAuth, (req, res)
 // ── Error Handler ─────────────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   console.error('Auth API error:', err)
-  res.status(500).json({ message: err.message || 'Internal server error. Please try again.' })
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error. Please try again.', message: err.message || 'Internal server error. Please try again.' })
 })
 
 app.listen(PORT, () => {

@@ -10,6 +10,7 @@ import ProponentNotifications from "./pages/ProponentNotifications";
 import ScrutinyDashboard from "./pages/ScrutinyDashboard";
 import ScrutinyLogin from "./pages/ScrutinyLogin";
 import MoMDashboard from "./pages/MoMDashboard";
+import MomLogin from "./pages/MomLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminLogin from "./pages/AdminLogin";
 import { AdminRoute } from "./components/AdminRoute";
@@ -136,6 +137,11 @@ export const router = createBrowserRouter([
         ErrorBoundary: ErrorBoundary,
       },
     ],
+  },
+  {
+    path: "/mom/login",
+    Component: MomLogin,
+    ErrorBoundary: ErrorBoundary,
   },
   {
     path: "/unauthorized",

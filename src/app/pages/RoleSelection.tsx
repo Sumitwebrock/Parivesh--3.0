@@ -41,7 +41,7 @@ export default function RoleSelection() {
       color: "bg-[#7B1FA2]",
       hoverColor: "hover:bg-[#6A1B9A]",
       description: "Generate meeting minutes",
-      path: "/mom",
+      path: "/mom/login",
     },
   ];
 

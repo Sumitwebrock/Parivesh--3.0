@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageSquare,
@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   CheckCheck,
   XCircle,
+  Mail,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -48,150 +49,39 @@ import {
   CardHeader,
   CardTitle,
 } from "./ui/card";
-
-type ComplaintStatus = "submitted" | "under-review" | "resolved" | "closed";
-type ComplaintCategory =
-  | "delay"
-  | "technical"
-  | "documentation"
-  | "transparency"
-  | "corruption"
-  | "other";
-type ComplaintPriority = "low" | "medium" | "high" | "urgent";
-
-interface Complaint {
-  id: string;
-  title: string;
-  category: ComplaintCategory;
-  status: ComplaintStatus;
-  priority: ComplaintPriority;
-  description: string;
-  date: string;
-  responseTime: string;
-  respondedBy?: string;
-  response?: string;
-  applicationType?: string;
-  applicationId?: string;
-  attachments?: number;
-  complainantName: string;
-  complainantEmail: string;
-  complainantPhone?: string;
-  assignedTo?: string;
-}
+import {
+  buildComplaintGmailComposeUrl,
+  generateComplaintEmailDraft,
+  getComplaints,
+  updateComplaint,
+  type ComplaintCategory,
+  type ComplaintPriority,
+  type ComplaintRecord,
+  type ComplaintStatus,
+} from "../services/complaints";
 
 export function ComplaintManagement() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [selectedPriority, setSelectedPriority] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(
+  const [complaints, setComplaints] = useState<ComplaintRecord[]>([]);
+  const [selectedComplaint, setSelectedComplaint] = useState<ComplaintRecord | null>(
     null
   );
 
-  // Mock complaints data with admin fields
-  const complaints: Complaint[] = [
-    {
-      id: "CMP-2026-001245",
-      title: "Excessive delay in environmental clearance processing",
-      category: "delay",
-      status: "under-review",
-      priority: "high",
-      description:
-        "My application EC/2025/4589 has been pending for over 60 days without any update. The stipulated time frame has passed.",
-      date: "2026-03-05",
-      responseTime: "2 days",
-      applicationId: "EC/2025/4589",
-      applicationType: "Environmental Clearance",
-      attachments: 3,
-      complainantName: "Rajesh Kumar",
-      complainantEmail: "rajesh.kumar@example.com",
-      complainantPhone: "+91 98765 43210",
-      assignedTo: "Priya Sharma (Scrutiny Team)",
-    },
-    {
-      id: "CMP-2026-001244",
-      title: "Technical issue in document upload portal",
-      category: "technical",
-      status: "resolved",
-      priority: "urgent",
-      description:
-        "Unable to upload EIA report due to repeated server errors. Multiple attempts failed.",
-      date: "2026-03-03",
-      responseTime: "1 day",
-      response:
-        "The technical issue has been resolved. The upload portal is now functioning properly. Please try uploading your documents again.",
-      respondedBy: "Technical Support Team",
-      attachments: 2,
-      complainantName: "Anjali Mehta",
-      complainantEmail: "anjali.mehta@example.com",
-      assignedTo: "Tech Support",
-    },
-    {
-      id: "CMP-2026-001243",
-      title: "Incomplete information on required documentation",
-      category: "documentation",
-      status: "resolved",
-      priority: "medium",
-      description:
-        "The guidelines for wildlife clearance do not specify the exact format for biodiversity assessment report.",
-      date: "2026-02-28",
-      responseTime: "3 days",
-      response:
-        "Updated guidelines with detailed format specifications have been published. Please refer to the Downloads section.",
-      respondedBy: "Documentation Team",
-      complainantName: "Suresh Patel",
-      complainantEmail: "suresh.patel@example.com",
-    },
-    {
-      id: "CMP-2026-001242",
-      title: "Request for public hearing information",
-      category: "transparency",
-      status: "under-review",
-      priority: "medium",
-      description:
-        "Public hearing schedule for project FC/2025/3421 has not been published on the portal.",
-      date: "2026-02-25",
-      responseTime: "5 days",
-      applicationId: "FC/2025/3421",
-      applicationType: "Forest Clearance",
-      attachments: 1,
-      complainantName: "Kavita Singh",
-      complainantEmail: "kavita.singh@example.com",
-      assignedTo: "MoM Team Lead",
-    },
-    {
-      id: "CMP-2026-001241",
-      title: "Alleged corruption in clearance approval",
-      category: "corruption",
-      status: "submitted",
-      priority: "urgent",
-      description:
-        "I have evidence of bribery demand by an official for expediting my forest clearance application.",
-      date: "2026-02-20",
-      responseTime: "Pending",
-      applicationId: "FC/2025/3876",
-      applicationType: "Forest Clearance",
-      complainantName: "Anonymous",
-      complainantEmail: "whistleblower@secure.com",
-      attachments: 5,
-    },
-    {
-      id: "CMP-2026-001240",
-      title: "Discrepancy in scrutiny team feedback",
-      category: "other",
-      status: "submitted",
-      priority: "low",
-      description:
-        "Received contradictory feedback from two different scrutiny officers on the same application.",
-      date: "2026-02-18",
-      responseTime: "Pending",
-      applicationId: "EC/2025/3210",
-      applicationType: "Environmental Clearance",
-      complainantName: "Deepak Verma",
-      complainantEmail: "deepak.verma@example.com",
-      complainantPhone: "+91 98234 56789",
-    },
-  ];
+  useEffect(() => {
+    setComplaints(getComplaints());
+  }, []);
+
+  useEffect(() => {
+    const onStorage = () => {
+      setComplaints(getComplaints());
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const stats = [
     {
@@ -464,7 +354,7 @@ export function ComplaintManagement() {
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                          <AdminComplaintDetails complaint={complaint} />
+                          <AdminComplaintDetails complaint={complaint} onSaved={setComplaints} />
                         </DialogContent>
                       </Dialog>
                     </div>
@@ -491,15 +381,67 @@ export function ComplaintManagement() {
   );
 }
 
-function AdminComplaintDetails({ complaint }: { complaint: Complaint }) {
+function AdminComplaintDetails({
+  complaint,
+  onSaved,
+}: {
+  complaint: ComplaintRecord;
+  onSaved: (complaints: ComplaintRecord[]) => void;
+}) {
   const [status, setStatus] = useState(complaint.status);
   const [priority, setPriority] = useState(complaint.priority);
   const [response, setResponse] = useState(complaint.response || "");
   const [assignedTo, setAssignedTo] = useState(complaint.assignedTo || "");
 
+  const draftComplaint = (): ComplaintRecord => ({
+    ...complaint,
+    status,
+    priority,
+    response,
+    assignedTo,
+  });
+
+  const persistComplaint = (nextResponse?: string) => {
+    const resolvedResponse = typeof nextResponse === "string" ? nextResponse : response;
+    onSaved(
+      updateComplaint(complaint.id, {
+        status,
+        priority,
+        response: resolvedResponse,
+        assignedTo,
+        respondedBy: resolvedResponse.trim() ? "Admin Team" : complaint.respondedBy,
+      })
+    );
+  };
+
   const handleUpdateStatus = () => {
-    // Handle status update
-    console.log("Updating status to:", status);
+    persistComplaint();
+  };
+
+  const handleGenerateMail = () => {
+    const draft = generateComplaintEmailDraft(draftComplaint());
+    setResponse(draft.body);
+  };
+
+  const handleOpenGmail = () => {
+    const generatedDraft = generateComplaintEmailDraft(draftComplaint(), {
+      response: response.trim() || undefined,
+    });
+    const finalResponse = response.trim() || generatedDraft.body;
+    if (!response.trim()) {
+      setResponse(finalResponse);
+    }
+
+    persistComplaint(finalResponse);
+
+    const composeUrl = buildComplaintGmailComposeUrl(draftComplaint(), {
+      response: finalResponse,
+    });
+
+    const popup = window.open(composeUrl, "_blank", "noopener,noreferrer");
+    if (!popup) {
+      window.location.href = composeUrl;
+    }
   };
 
   return (
@@ -699,15 +641,37 @@ function AdminComplaintDetails({ complaint }: { complaint: Complaint }) {
               onChange={(e) => setResponse(e.target.value)}
               className="mb-3"
             />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
+                type="button"
+                variant="outline"
+                className="flex-1 min-w-[180px]"
+                onClick={handleGenerateMail}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Auto Generate Mail
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 min-w-[180px] border-[#003087] text-[#003087] hover:bg-blue-50"
+                onClick={handleOpenGmail}
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                Open Gmail Draft
+              </Button>
+              <Button
+                type="button"
                 className="flex-1 bg-[#1A5C1A] hover:bg-[#145014]"
                 onClick={handleUpdateStatus}
               >
                 <CheckCheck className="w-4 h-4 mr-2" />
-                Save & Send Response
+                Save Response
               </Button>
             </div>
+            <p className="mt-3 text-xs text-gray-500">
+              Gmail opens with the complainant email, subject, and official response prefilled. You can review it and send it from your Gmail account.
+            </p>
           </div>
 
           {complaint.response && (

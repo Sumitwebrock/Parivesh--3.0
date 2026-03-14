@@ -1,7 +1,7 @@
 import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { Footer } from "../components/Footer";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageSquare,
@@ -54,30 +54,13 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
-
-type ComplaintStatus = "submitted" | "under-review" | "resolved" | "closed";
-type ComplaintCategory =
-  | "delay"
-  | "technical"
-  | "documentation"
-  | "transparency"
-  | "corruption"
-  | "other";
-
-interface Complaint {
-  id: string;
-  title: string;
-  category: ComplaintCategory;
-  status: ComplaintStatus;
-  description: string;
-  date: string;
-  responseTime: string;
-  respondedBy?: string;
-  response?: string;
-  applicationType?: string;
-  applicationId?: string;
-  attachments?: number;
-}
+import {
+  getComplaints,
+  submitComplaint,
+  type ComplaintCategory,
+  type ComplaintRecord,
+  type ComplaintStatus,
+} from "../services/complaints";
 
 export default function Complaints() {
   const [activeTab, setActiveTab] = useState("new");
@@ -85,104 +68,51 @@ export default function Complaints() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isNewComplaintOpen, setIsNewComplaintOpen] = useState(false);
-  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(
+  const [complaints, setComplaints] = useState<ComplaintRecord[]>(() => getComplaints());
+  const [selectedComplaint, setSelectedComplaint] = useState<ComplaintRecord | null>(
     null
   );
 
-  // Mock complaints data
-  const complaints: Complaint[] = [
-    {
-      id: "CMP-2026-001245",
-      title: "Excessive delay in environmental clearance processing",
-      category: "delay",
-      status: "under-review",
-      description:
-        "My application EC/2025/4589 has been pending for over 60 days without any update. The stipulated time frame has passed.",
-      date: "2026-03-05",
-      responseTime: "2 days",
-      applicationId: "EC/2025/4589",
-      applicationType: "Environmental Clearance",
-      attachments: 3,
-    },
-    {
-      id: "CMP-2026-001244",
-      title: "Technical issue in document upload portal",
-      category: "technical",
-      status: "resolved",
-      description:
-        "Unable to upload EIA report due to repeated server errors. Multiple attempts failed.",
-      date: "2026-03-03",
-      responseTime: "1 day",
-      response:
-        "The technical issue has been resolved. The upload portal is now functioning properly. Please try uploading your documents again.",
-      respondedBy: "Technical Support Team",
-      attachments: 2,
-    },
-    {
-      id: "CMP-2026-001243",
-      title: "Incomplete information on required documentation",
-      category: "documentation",
-      status: "resolved",
-      description:
-        "The guidelines for wildlife clearance do not specify the exact format for biodiversity assessment report.",
-      date: "2026-02-28",
-      responseTime: "3 days",
-      response:
-        "Updated guidelines with detailed format specifications have been published. Please refer to the Downloads section.",
-      respondedBy: "Documentation Team",
-    },
-    {
-      id: "CMP-2026-001242",
-      title: "Request for public hearing information",
-      category: "transparency",
-      status: "under-review",
-      description:
-        "Public hearing schedule for project FC/2025/3421 has not been published on the portal.",
-      date: "2026-02-25",
-      responseTime: "5 days",
-      applicationId: "FC/2025/3421",
-      applicationType: "Forest Clearance",
-      attachments: 1,
-    },
-    {
-      id: "CMP-2026-001241",
-      title: "Discrepancy in scrutiny team feedback",
-      category: "other",
-      status: "submitted",
-      description:
-        "Received contradictory feedback from two different scrutiny officers on the same application.",
-      date: "2026-02-20",
-      responseTime: "Pending",
-      applicationId: "EC/2025/3876",
-      applicationType: "Environmental Clearance",
-    },
-  ];
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key) {
+        setComplaints(getComplaints());
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const stats = [
     {
       label: "Total Complaints",
-      value: "1,245",
+      value: complaints.length.toLocaleString("en-IN"),
       icon: MessageSquare,
       color: "text-blue-600",
       bgColor: "bg-blue-50",
     },
     {
       label: "Under Review",
-      value: "342",
+      value: complaints.filter((complaint) => complaint.status === "under-review").length.toLocaleString("en-IN"),
       icon: Clock,
       color: "text-orange-600",
       bgColor: "bg-orange-50",
     },
     {
       label: "Resolved",
-      value: "856",
+      value: complaints.filter((complaint) => complaint.status === "resolved").length.toLocaleString("en-IN"),
       icon: CheckCircle,
       color: "text-green-600",
       bgColor: "bg-green-50",
     },
     {
       label: "Avg Response Time",
-      value: "2.3 days",
+      value: complaints.length
+        ? `${(
+            complaints.filter((complaint) => complaint.responseTime !== "Pending").length / complaints.length
+          ).toFixed(1)} tracked`
+        : "0 tracked",
       icon: TrendingUp,
       color: "text-purple-600",
       bgColor: "bg-purple-50",
@@ -306,7 +236,10 @@ export default function Complaints() {
                       working days.
                     </DialogDescription>
                   </DialogHeader>
-                  <NewComplaintForm onClose={() => setIsNewComplaintOpen(false)} />
+                  <NewComplaintForm
+                    onClose={() => setIsNewComplaintOpen(false)}
+                    onSubmitted={() => setComplaints(getComplaints())}
+                  />
                 </DialogContent>
               </Dialog>
               <Button
@@ -539,12 +472,39 @@ export default function Complaints() {
   );
 }
 
-function NewComplaintForm({ onClose }: { onClose: () => void }) {
+function NewComplaintForm({
+  onClose,
+  onSubmitted,
+}: {
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    category: "delay" as ComplaintCategory,
+    applicationId: "",
+    applicationType: "",
+    title: "",
+    description: "",
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
+    submitComplaint({
+      complainantName: form.name,
+      complainantEmail: form.email,
+      complainantPhone: form.phone,
+      category: form.category,
+      applicationId: form.applicationId,
+      applicationType: form.applicationType || undefined,
+      title: form.title,
+      description: form.description,
+      attachments: attachments.length,
+    });
+    onSubmitted();
     onClose();
   };
 
@@ -553,27 +513,22 @@ function NewComplaintForm({ onClose }: { onClose: () => void }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="name">Full Name *</Label>
-          <Input id="name" placeholder="Enter your full name" required />
+          <Input id="name" placeholder="Enter your full name" required value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="email">Email Address *</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="your.email@example.com"
-            required
-          />
+          <Input id="email" type="email" placeholder="your.email@example.com" required value={form.email} onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="phone">Phone Number</Label>
-          <Input id="phone" type="tel" placeholder="+91 98765 43210" />
+          <Input id="phone" type="tel" placeholder="+91 98765 43210" value={form.phone} onChange={(e) => setForm((current) => ({ ...current, phone: e.target.value }))} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="category">Complaint Category *</Label>
-          <Select required>
+          <Select value={form.category} onValueChange={(value) => setForm((current) => ({ ...current, category: value as ComplaintCategory }))}>
             <SelectTrigger id="category">
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
@@ -591,26 +546,22 @@ function NewComplaintForm({ onClose }: { onClose: () => void }) {
 
       <div className="space-y-2">
         <Label htmlFor="applicationId">Related Application ID (if any)</Label>
-        <Input id="applicationId" placeholder="e.g., EC/2025/4589" />
+        <Input id="applicationId" placeholder="e.g., EC/2025/4589" value={form.applicationId} onChange={(e) => setForm((current) => ({ ...current, applicationId: e.target.value }))} />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="applicationType">Application Type</Label>
+        <Input id="applicationType" placeholder="e.g., Environmental Clearance" value={form.applicationType} onChange={(e) => setForm((current) => ({ ...current, applicationType: e.target.value }))} />
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="title">Complaint Title *</Label>
-        <Input
-          id="title"
-          placeholder="Brief summary of your complaint"
-          required
-        />
+        <Input id="title" placeholder="Brief summary of your complaint" required value={form.title} onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))} />
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="description">Detailed Description *</Label>
-        <Textarea
-          id="description"
-          placeholder="Provide detailed information about your complaint including dates, reference numbers, and specific issues..."
-          rows={6}
-          required
-        />
+        <Textarea id="description" placeholder="Provide detailed information about your complaint including dates, reference numbers, and specific issues..." rows={6} required value={form.description} onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))} />
       </div>
 
       <div className="space-y-2">
@@ -696,7 +647,7 @@ function NewComplaintForm({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ComplaintDetails({ complaint }: { complaint: Complaint }) {
+function ComplaintDetails({ complaint }: { complaint: ComplaintRecord }) {
   return (
     <div className="space-y-6">
       <DialogHeader>
