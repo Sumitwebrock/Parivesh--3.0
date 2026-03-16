@@ -48,6 +48,7 @@ type ApplicationFeePaymentCardProps = {
   verifiedBy?: string;
   verifiedAt?: string | null;
   helperText?: string;
+  compactView?: boolean;
 };
 
 export function ApplicationFeePaymentCard({
@@ -70,6 +71,7 @@ export function ApplicationFeePaymentCard({
   verifiedBy,
   verifiedAt,
   helperText = "After payment submission, the scrutiny team will verify the fee before document scrutiny proceeds.",
+  compactView = false,
 }: ApplicationFeePaymentCardProps) {
   const normalizedStatus = useMemo(() => normalizePaymentStatus(paymentStatus), [paymentStatus]);
   const [copiedValue, setCopiedValue] = useState<"upi" | "note" | "link" | "">("");
@@ -106,19 +108,20 @@ export function ApplicationFeePaymentCard({
   };
 
   const canSubmitPayment = Boolean(qrPayload) && !disableActions && normalizedStatus !== "Pending Verification" && normalizedStatus !== "Verified";
+  const canPayWithUpi = Boolean(qrPayload) && !disableActions;
   const canRefreshQr = Boolean(onRefresh) && !disableActions;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
+    <div className={`grid gap-6 ${compactView ? "" : "xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]"}`}>
       <div className="overflow-hidden rounded-[28px] border border-[#dbe6d6] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
-        <div className="border-b border-[#e6efe3] bg-[linear-gradient(135deg,#0f4f2c_0%,#1f6f43_58%,#eef7ef_58%,#fbf5e8_100%)] px-6 py-6 text-white md:px-8">
+        <div className={`border-b border-[#e6efe3] bg-[linear-gradient(135deg,#0f4f2c_0%,#1f6f43_58%,#eef7ef_58%,#fbf5e8_100%)] text-white ${compactView ? "px-4 py-3 md:px-5" : "px-6 py-6 md:px-8"}`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="max-w-2xl space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1 text-xs font-medium tracking-[0.18em] text-white/90 uppercase">
+            <div className={`max-w-2xl ${compactView ? "space-y-1" : "space-y-2"}`}>
+              <div className={`inline-flex items-center gap-2 rounded-full bg-white/12 uppercase text-white/90 ${compactView ? "px-2.5 py-1 text-[10px] font-semibold tracking-[0.14em]" : "px-3 py-1 text-xs font-medium tracking-[0.18em]"}`}>
                 <ShieldCheck className="h-4 w-4" /> Secure UPI Collection
               </div>
-              <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-              <p className="max-w-xl text-sm text-white/85">{subtitle}</p>
+              <h2 className={`${compactView ? "text-lg" : "text-2xl"} font-semibold tracking-tight`}>{title}</h2>
+              {!compactView && <p className="max-w-xl text-sm text-white/85">{subtitle}</p>}
             </div>
             <div className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusPill}`}>
               {normalizedStatus}
@@ -126,22 +129,22 @@ export function ApplicationFeePaymentCard({
           </div>
         </div>
 
-        <div className="grid gap-6 p-6 md:grid-cols-[280px_minmax(0,1fr)] md:p-8">
-          <div className="flex flex-col items-center justify-center rounded-[24px] border border-[#e8edf2] bg-[radial-gradient(circle_at_top,#f5fbff_0%,#f7fbf2_62%,#ffffff_100%)] px-5 py-6 text-center">
-            <div className="rounded-[24px] border border-[#dfe7dd] bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+        <div className={`grid gap-5 ${compactView ? "p-4 md:grid-cols-[190px_minmax(0,1fr)] md:p-5" : "p-6 md:grid-cols-[280px_minmax(0,1fr)] md:p-8"}`}>
+          <div className={`flex flex-col items-center justify-center rounded-[24px] border border-[#e8edf2] bg-[radial-gradient(circle_at_top,#f5fbff_0%,#f7fbf2_62%,#ffffff_100%)] text-center ${compactView ? "px-3 py-4" : "px-5 py-6"}`}>
+            <div className={`rounded-[24px] border border-[#dfe7dd] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)] ${compactView ? "p-3" : "p-5"}`}>
               {qrPayload ? (
-                <QRCodeSVG value={qrPayload} size={216} includeMargin />
+                <QRCodeSVG value={qrPayload} size={compactView ? 140 : 216} includeMargin />
               ) : (
-                <div className="flex h-[216px] w-[216px] items-center justify-center text-gray-300">
+                <div className={`flex items-center justify-center text-gray-300 ${compactView ? "h-[140px] w-[140px]" : "h-[216px] w-[216px]"}`}>
                   <QrCode className="h-12 w-12" />
                 </div>
               )}
             </div>
 
-            <div className="mt-5 w-full rounded-2xl border border-[#e5efe1] bg-white/70 p-4 text-left">
+            <div className={`w-full rounded-2xl border border-[#e5efe1] bg-white/70 text-left ${compactView ? "mt-3 p-3" : "mt-5 p-4"}`}>
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#5c6f60]">Payee UPI ID</p>
               <div className="mt-2 flex items-center justify-between gap-2">
-                <p className="min-w-0 flex-1 rounded-xl border border-[#d9e4d7] bg-white px-3 py-2 text-sm font-semibold text-gray-800">{upiId || "sumitkumarsahoo772@okicici"}</p>
+                <p className={`min-w-0 flex-1 rounded-xl border border-[#d9e4d7] bg-white font-semibold text-gray-800 ${compactView ? "px-2.5 py-2 text-xs" : "px-3 py-2 text-sm"}`}>{upiId || "sumitkumarsahoo772@okicici"}</p>
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-full border border-[#d5dfd0] px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-white"
@@ -153,7 +156,7 @@ export function ApplicationFeePaymentCard({
             </div>
           </div>
 
-          <div className="space-y-5">
+          <div className={`space-y-${compactView ? "4" : "5"}`}>
             <div className="grid gap-3 sm:grid-cols-2">
               <DetailTile label="Application Reference" value={applicationReference || "Draft application"} emphasized />
               <DetailTile
@@ -162,19 +165,19 @@ export function ApplicationFeePaymentCard({
                 icon={<IndianRupee className="h-5 w-5 text-[#0f5d36]" />}
                 emphasized
               />
-              <DetailTile label="Current Workflow" value={workflowStatus || "Draft"} />
+              {!compactView && <DetailTile label="Current Workflow" value={workflowStatus || "Draft"} />}
               <DetailTile label="Payment Status" value={normalizedStatus} />
             </div>
 
-            <div className="rounded-[24px] border border-[#e6ece6] bg-[#fbfcfa] p-5">
+            <div className={`rounded-[24px] border border-[#e6ece6] bg-[#fbfcfa] ${compactView ? "p-4" : "p-5"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5d6f61]">Project</p>
-                  <p className="mt-1 text-base font-semibold text-gray-900">{applicationTitle || "Application fee collection"}</p>
+                  <p className={`${compactView ? "mt-1 text-sm" : "mt-1 text-base"} font-semibold text-gray-900`}>{applicationTitle || "Application fee collection"}</p>
                 </div>
                 {qrPayload && (
                   <a
-                    className="inline-flex items-center gap-2 rounded-full border border-[#cedcc9] bg-white px-3 py-2 text-xs font-semibold text-[#1c5d38] hover:bg-[#f3f8f4]"
+                    className={`inline-flex items-center gap-2 rounded-full border border-[#cedcc9] bg-white font-semibold text-[#1c5d38] hover:bg-[#f3f8f4] ${compactView ? "px-2.5 py-1.5 text-[11px]" : "px-3 py-2 text-xs"}`}
                     href={qrPayload}
                   >
                     <ExternalLink className="h-4 w-4" /> Open UPI Intent
@@ -182,7 +185,7 @@ export function ApplicationFeePaymentCard({
                 )}
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className={`mt-4 grid gap-3 ${compactView ? "grid-cols-1" : "sm:grid-cols-2"}`}>
                 <DetailRow
                   label="Transaction Note"
                   value={upiNote || "-"}
@@ -190,32 +193,44 @@ export function ApplicationFeePaymentCard({
                   onAction={() => copyText(upiNote, "note")}
                 />
                 <DetailRow label="Submitted Reference" value={upiRef || "Waiting for PP to confirm payment"} />
-                <DetailRow label="Verification Officer" value={verifiedBy || "Not verified yet"} />
-                <DetailRow label="Verified On" value={verifiedAt ? new Date(verifiedAt).toLocaleString() : "Awaiting scrutiny review"} />
+                {!compactView && <DetailRow label="Verification Officer" value={verifiedBy || "Not verified yet"} />}
+                {!compactView && <DetailRow label="Verified On" value={verifiedAt ? new Date(verifiedAt).toLocaleString() : "Awaiting scrutiny review"} />}
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-[#e7e1cf] bg-[linear-gradient(180deg,#fffaf0_0%,#fffef8_100%)] p-5">
+            <div className={`rounded-[24px] border border-[#e7e1cf] bg-[linear-gradient(180deg,#fffaf0_0%,#fffef8_100%)] ${compactView ? "p-4" : "p-5"}`}>
               <div className="flex items-center gap-2 text-sm font-semibold text-[#805b10]">
                 <CircleAlert className="h-4 w-4" /> Payment Declaration
               </div>
-              <p className="mt-2 text-sm text-[#6c5b2b]">This QR is generated for the configured portal UPI ID. Scan it with any UPI-enabled banking app and submit the transaction reference below.</p>
-              <div className="mt-4 space-y-2">
+              {!compactView && <p className="mt-2 text-sm text-[#6c5b2b]">This QR is generated for the configured portal UPI ID. Scan it with any UPI-enabled banking app and submit the transaction reference below.</p>}
+              <div className={`${compactView ? "mt-3" : "mt-4"} space-y-2`}>
                 <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-[#7a6a3f]">UPI Transaction Reference</label>
                 <input
-                  className="w-full rounded-2xl border border-[#e4d8b5] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#b6913f]"
+                  className={`w-full rounded-2xl border border-[#e4d8b5] bg-white outline-none transition focus:border-[#b6913f] ${compactView ? "px-3 py-2.5 text-sm" : "px-4 py-3 text-sm"}`}
                   placeholder="e.g. UPI-23948290421"
                   value={upiRef}
                   onChange={(event) => onUpiRefChange(event.target.value)}
                 />
-                <p className="text-xs text-[#8b7c52]">{helperText}</p>
+                {!compactView && <p className="text-xs text-[#8b7c52]">{helperText}</p>}
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className={`grid gap-3 ${compactView ? "grid-cols-2 lg:grid-cols-4" : "flex flex-wrap"}`}>
               <button
                 type="button"
-                className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#155b34] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0f4929] disabled:cursor-not-allowed disabled:opacity-55"
+                className={`inline-flex items-center justify-center gap-2 rounded-2xl bg-[#ff6b00] text-sm font-semibold text-white transition hover:bg-[#e65f00] disabled:cursor-not-allowed disabled:opacity-55 ${compactView ? "min-h-11 px-3 py-2.5" : "min-h-12 px-5 py-3"}`}
+                onClick={() => {
+                  if (!qrPayload) return;
+                  window.open(qrPayload, "_blank", "noopener,noreferrer");
+                }}
+                disabled={!canPayWithUpi || loading}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Pay with UPI
+              </button>
+              <button
+                type="button"
+                className={`inline-flex items-center justify-center gap-2 rounded-2xl bg-[#155b34] text-sm font-semibold text-white transition hover:bg-[#0f4929] disabled:cursor-not-allowed disabled:opacity-55 ${compactView ? "min-h-11 px-3 py-2.5" : "min-h-12 flex-1 px-5 py-3"}`}
                 onClick={onMarkPaid}
                 disabled={!canSubmitPayment || loading}
               >
@@ -225,7 +240,7 @@ export function ApplicationFeePaymentCard({
               {onRefresh && (
                 <button
                   type="button"
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-[#d4ddd1] bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-55"
+                  className={`inline-flex items-center justify-center gap-2 rounded-2xl border border-[#d4ddd1] bg-white text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-55 ${compactView ? "min-h-11 px-3 py-2.5" : "min-h-12 px-5 py-3"}`}
                   onClick={onRefresh}
                   disabled={!canRefreshQr || loading}
                 >
@@ -235,7 +250,7 @@ export function ApplicationFeePaymentCard({
               )}
               <button
                 type="button"
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-[#d4ddd1] bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-55"
+                className={`inline-flex items-center justify-center gap-2 rounded-2xl border border-[#d4ddd1] bg-white text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-55 ${compactView ? "min-h-11 px-3 py-2.5" : "min-h-12 px-5 py-3"}`}
                 onClick={() => copyText(qrPayload, "link")}
                 disabled={!qrPayload}
               >
@@ -247,7 +262,7 @@ export function ApplicationFeePaymentCard({
         </div>
       </div>
 
-      <div className="space-y-5">
+      {!compactView && <div className="space-y-5">
         <div className="rounded-[28px] border border-[#dde4dc] bg-white p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
           <h3 className="text-base font-semibold text-gray-900">Payment Status</h3>
           <div className="mt-5 space-y-4">
@@ -266,7 +281,7 @@ export function ApplicationFeePaymentCard({
             <p>3. Click I Have Paid to move the application into scrutiny verification.</p>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

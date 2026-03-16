@@ -104,6 +104,9 @@ export function createMomRoutes({ db, uploadsDir, blockchainAudit = null }) {
       a.mom_path,
       COALESCE(a.finalized, 0) AS finalized,
       a.finalized_at,
+      mr.meeting_date,
+      mr.meeting_id,
+      mr.committee_name,
       s.name AS sector,
       s.name AS sector_name,
       u.full_name AS proponent_name,
@@ -111,6 +114,7 @@ export function createMomRoutes({ db, uploadsDir, blockchainAudit = null }) {
       a.updated_at,
       a.created_at
     FROM applications a
+    LEFT JOIN mom_records mr ON mr.application_id = a.id
     JOIN sectors s ON s.id = a.sector_id
     JOIN users u ON u.id = a.owner_user_id
     WHERE a.status IN ('Referred', 'MoMGenerated', 'Finalized')

@@ -33,9 +33,9 @@ export function GreenMandala({ size = 300 }: { size?: number }) {
     return `M${ptX(a1, r).toFixed(1)},${ptY(a1, r).toFixed(1)} A${r},${r} 0 0,1 ${ptX(a2, r).toFixed(1)},${ptY(a2, r).toFixed(1)}`;
   };
 
-  const c1 = "#1A5C1A"; // deep forest
-  const c2 = "#2E7D32"; // mid green
-  const c3 = "#4CAF50"; // light accent
+  const c1 = "#0a2688"; // deep forest
+  const c2 = "#082665"; // mid green
+  const c3 = "#104eca"; // light accent
 
   return (
     <svg

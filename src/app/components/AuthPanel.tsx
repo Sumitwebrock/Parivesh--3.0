@@ -362,6 +362,7 @@ function RegistrationForm({ onClose, onSwitch }: { onClose: () => void; onSwitch
     fullName: "", loginId: "", email: "", mobile: "",
     organization: "", role: "", state: "", password: "", confirmPwd: "",
   });
+  const [demoOtp, setDemoOtp] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [captcha, setCaptcha] = useState(genCaptcha);
@@ -387,6 +388,7 @@ function RegistrationForm({ onClose, onSwitch }: { onClose: () => void; onSwitch
     if (!form.state)             return setError("Please select your state.");
     if (form.password.length < 8) return setError("Password must be at least 8 characters.");
     if (form.password !== form.confirmPwd) return setError("Passwords do not match.");
+    if (!/^\d{4}$/.test(demoOtp)) return setError("Enter demo OTP as any 4-digit number.");
     if (captchaIn.toUpperCase() !== captcha) {
       setError("Captcha does not match.");
       refreshCaptcha();
@@ -534,6 +536,17 @@ function RegistrationForm({ onClose, onSwitch }: { onClose: () => void; onSwitch
               <input value={captchaIn} onChange={(e) => setCaptchaIn(e.target.value)}
                 placeholder="Type captcha" className={inputCls} maxLength={6} />
             </div>
+          </Field>
+
+          <Field label="Demo OTP (any 4 digits)" required>
+            <input
+              value={demoOtp}
+              onChange={(e) => setDemoOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="Enter 4-digit OTP"
+              className={inputCls}
+              inputMode="numeric"
+              maxLength={4}
+            />
           </Field>
 
           {/* Attention */}

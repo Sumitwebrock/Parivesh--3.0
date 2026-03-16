@@ -55,6 +55,17 @@ function parseSummaryBullets(summary: string): string[] {
     .filter(Boolean);
 }
 
+function downloadFile(url: string, fileName?: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  if (fileName) link.download = fileName;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 export default function ScrutinyDashboard() {
   const [queue, setQueue] = useState<ScrutinyQueueItem[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
@@ -332,6 +343,48 @@ export default function ScrutinyDashboard() {
     }
   };
 
+  const onSendBackToProponent = async () => {
+    if (!detail) return;
+
+    const fromManual = edsComments.trim();
+    const fromVerification = verificationOutcome?.result === "EDS" ? verificationOutcome.edsMessage.trim() : "";
+    const fromSummaryBullets = detail.application.eds_summary?.trim()
+      ? parseSummaryBullets(detail.application.eds_summary).map((line, idx) => `${idx + 1}. ${line}`).join("\n")
+      : "";
+    const fromAutomated = automatedPotentialGapSummary.length
+      ? automatedPotentialGapSummary.map((line, idx) => `${idx + 1}. ${line}`).join("\n")
+      : "";
+
+    const deficiencyComments =
+      fromManual ||
+      fromVerification ||
+      (fromSummaryBullets ? `EDS generated from summary:\n${fromSummaryBullets}` : "") ||
+      (fromAutomated ? `EDS generated from automated checks:\n${fromAutomated}` : "");
+
+    if (!deficiencyComments.trim()) {
+      setError("No EDS summary/details available to send back. Run verification or add comments first.");
+      return;
+    }
+
+    setSavingAction(true);
+    setError("");
+    setOk("");
+    try {
+      await issueEds(detail.application.id, {
+        deficiencyComments: deficiencyComments.trim(),
+        flaggedDocumentIds: edsDocIds,
+        remarks: edsRemarks.trim() || "Sent back to Proponent using EDS summary.",
+      });
+      setOk("Application sent back to Proponent with EDS summary successfully.");
+      await loadDetail(detail.application.id);
+      await loadQueue();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to send application back to Proponent.");
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
   const onGenerateGist = async () => {
     if (!detail) return;
     setSavingAction(true);
@@ -339,11 +392,13 @@ export default function ScrutinyDashboard() {
     setOk("");
     try {
       const result = await generateGist(detail.application.id);
-      setGistLinks({
+      const links = {
         docx: result.gist.docxDownloadUrl,
         pdf: result.gist.pdfDownloadUrl,
-      });
-      setOk("Draft meeting gist generated in DOCX and PDF.");
+      };
+      setGistLinks(links);
+      downloadFile(links.pdf, `${detail.application.application_id}_meeting_gist.pdf`);
+      setOk("Draft meeting gist generated. PDF download started.");
       await loadDetail(detail.application.id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to generate gist.");
@@ -756,6 +811,13 @@ export default function ScrutinyDashboard() {
                         Issue EDS
                       </button>
                       <button
+                        className="px-3 py-2 rounded bg-rose-700 text-white text-sm disabled:opacity-60"
+                        disabled={savingAction || isScrutinyLocked}
+                        onClick={onSendBackToProponent}
+                      >
+                        Send Back to Proponent
+                      </button>
+                      <button
                         className="px-3 py-2 rounded bg-emerald-700 text-white text-sm disabled:opacity-60"
                         disabled={savingAction || isScrutinyLocked}
                         onClick={onGenerateGist}
@@ -787,6 +849,20 @@ export default function ScrutinyDashboard() {
                       >
                         Reopen to Scrutiny
                       </button>
+                    )}
+
+                    {gistLinks && (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                        <p className="text-sm font-medium text-emerald-800">Generated GIST files</p>
+                        <div className="mt-2 flex flex-wrap gap-3 text-sm">
+                          <a className="text-emerald-700 hover:underline" href={gistLinks.pdf} target="_blank" rel="noreferrer">
+                            Download PDF
+                          </a>
+                          <a className="text-emerald-700 hover:underline" href={gistLinks.docx} target="_blank" rel="noreferrer">
+                            Download DOCX
+                          </a>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </Section>

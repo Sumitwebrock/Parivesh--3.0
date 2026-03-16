@@ -79,7 +79,7 @@ function PariveshLogoSVG({ size = 56 }: { size?: number }) {
         <path key={i} d={segPath(i * segAngle, (i + 1) * segAngle)} fill={c} />
       ))}
       <circle cx={r} cy={r} r={IR - 2} fill="white" />
-      <text x={r} y={r + 3} textAnchor="middle" fill="#1A5C1A" fontSize={size * 0.13} fontWeight="900" fontFamily="sans-serif">
+      <text x={r} y={r + 3} textAnchor="middle" fill="#030352" fontSize={size * 0.13} fontWeight="900" fontFamily="sans-serif">
         परिवेश
       </text>
     </svg>
@@ -90,37 +90,21 @@ export function Header() {
   return (
     <>
       {/* ── Government of India Top Bar ── */}
-      <div className="bg-[#003087] text-white" style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-        <div className="max-w-[1400px] mx-auto px-4 py-1.5 flex items-center justify-between">
-          {/* Left: India flag + GOI text */}
+      <div className="bg-[#e8f1fb]" style={{ borderTop: "1px solid #cfe0f5", borderBottom: "1px solid #cfe0f5" }}>
+        <div className="max-w-[1400px] mx-auto px-4 py-1.5 flex items-center justify-start">
           <div className="flex items-center gap-2.5">
-            {/* Tricolour flag pill */}
-            <div className="flex flex-col overflow-hidden rounded-sm" style={{ width: 22, height: 15 }}>
-              <div className="flex-1 bg-orange-500" />
-              <div className="flex-1 bg-white flex items-center justify-center">
-                <div className="w-2 h-2 rounded-full bg-[#003087]" />
+            <div className="relative overflow-hidden border border-[#c0d2e9]" style={{ width: 30, height: 18 }} aria-hidden>
+              <div className="h-1/3 bg-[#FF9933]" />
+              <div className="h-1/3 bg-white flex items-center justify-center">
+                <div className="w-[6px] h-[6px] rounded-full border border-[#000080]" />
               </div>
-              <div className="flex-1 bg-green-600" />
+              <div className="h-1/3 bg-[#138808]" />
             </div>
-            <span className="text-[11px] font-semibold tracking-wide">
-              <span className="opacity-80 text-amber-200">भारत</span>
-              <span className="mx-1.5 opacity-40">|</span>
-              <span>Government of India</span>
-            </span>
-          </div>
-
-          {/* Right: Accessibility + Language */}
-          <div className="flex items-center gap-3">
-            <span className="text-[9px] font-medium opacity-60 uppercase tracking-wider hidden sm:inline">Accessibility</span>
-            <div className="flex items-center gap-0.5">
-              <button className="w-6 h-6 flex items-center justify-center text-[10px] font-bold hover:bg-white/10 rounded transition-colors" title="Decrease font size">A-</button>
-              <button className="w-6 h-6 flex items-center justify-center text-[11px] font-bold hover:bg-white/10 rounded transition-colors border border-white/20" title="Default font size">A</button>
-              <button className="w-7 h-6 flex items-center justify-center text-[13px] font-bold hover:bg-white/10 rounded transition-colors" title="Increase font size">A+</button>
-            </div>
-            <div className="w-px h-4 bg-white/20" />
-            <button className="flex items-center gap-1 text-[11px] font-medium hover:bg-white/10 px-2 py-0.5 rounded transition-colors" title="Switch language">
-              🌐 English ▾
-            </button>
+            <p className="text-[13px] sm:text-[14px] text-[#0f172a] leading-none" style={{ fontFamily: "Arial, sans-serif" }}>
+              <span className="font-bold">भारत सरकार</span>
+              <span className="mx-2 text-[#64748b] font-normal">|</span>
+              <span className="font-medium">Government of India</span>
+            </p>
           </div>
         </div>
       </div>
@@ -139,7 +123,6 @@ export function Header() {
                   PARI<span style={{ color: "#FF6B00" }}>V</span>ESH
                 </span>
                 <span className="text-xs font-bold text-[#FF6B00] bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">3.0</span>
-                <span className="text-xs text-gray-400 font-medium hidden sm:inline">(CPC GREEN)</span>
               </div>
               <p className="text-[10px] font-bold text-[#1A5C1A] leading-tight mt-0.5">
                 पर्यावरण, वन और जलवायु परिवर्तन मंत्रालय

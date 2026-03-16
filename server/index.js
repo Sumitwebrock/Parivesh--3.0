@@ -7,7 +7,22 @@ import jwt from 'jsonwebtoken'
 import Database from 'better-sqlite3'
 import multer from 'multer'
 import PDFDocument from 'pdfkit'
-import { Document as WordDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
+import {
+  AlignmentType,
+  BorderStyle,
+  Document as WordDocument,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  ShadingType,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
+  TextRun,
+  VerticalAlign,
+  WidthType,
+} from 'docx'
 import { createMomRoutes } from './routes/momRoutes.js'
 import { createAiComplianceService } from './services/aiComplianceService.js'
 import { createBlockchainAuditService } from './services/blockchainAuditService.js'
@@ -195,6 +210,17 @@ db.exec(`
     created_by INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS pp_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    application_id INTEGER REFERENCES applications(id) ON DELETE CASCADE,
+    type TEXT NOT NULL DEFAULT 'info',
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    is_read INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `)
 
 // Safely add new columns to existing users rows
@@ -257,6 +283,14 @@ const queueMoMFinalizationAudit = (applicationId, momPdfPath, actor = null) => {
   } catch (error) {
     console.error('[PARIVESH][Blockchain] Unable to queue MoM hash audit', error)
   }
+}
+
+const createPpNotification = ({ userId, applicationId = null, type = 'info', title, message }) => {
+  if (!userId || !title || !message) return
+  db.prepare(`
+    INSERT INTO pp_notifications (user_id, application_id, type, title, message, is_read, created_at)
+    VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+  `).run(userId, applicationId, type, String(title).trim(), String(message).trim())
 }
 
 // Backfill legacy rows where assigned_role stayed at default despite role label.
@@ -352,7 +386,7 @@ const createAdminToken = (admin) =>
 
 const createApplicationId = () => `EC/${new Date().getFullYear()}/${Math.floor(Math.random() * 90000 + 10000)}`
 
-const paymentByCategory = { A: 15000, B1: 10000, B2: 7000 }
+const paymentByCategory = { A: 15000, B1: 2000, B2: 7000 }
 // Update this one value to route every generated QR payment to your UPI account.
 const DEFAULT_PAYEE_UPI_ID = 'sumitkumarsahoo772@okicici'
 const DEFAULT_PAYEE_NAME = 'GraamSetu Portal'
@@ -415,6 +449,802 @@ function writePdfReport(filePath, title, text) {
   })
 }
 
+const GIST_TITLE = 'GIST Document Template (Auto-Generated After Successful Scrutiny)'
+const GIST_SECTION_FILL = 'E7F4EA'
+const GIST_TABLE_HEADER_FILL = 'F3F8F4'
+const GIST_BORDER_COLOR = 'B7C9BA'
+const GIST_SECTION_TEXT = '1B4332'
+
+const formatDisplayValue = (value, fallback = '-') => {
+  if (value === null || value === undefined) return fallback
+  if (Array.isArray(value)) {
+    const normalized = value.map((item) => formatDisplayValue(item, '')).filter(Boolean)
+    return normalized.length ? normalized.join(', ') : fallback
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, item]) => item !== null && item !== undefined && String(item).trim())
+      .slice(0, 3)
+      .map(([key, item]) => `${key}: ${String(item).trim()}`)
+    return entries.length ? entries.join(' | ') : fallback
+  }
+  const text = String(value).trim()
+  return text || fallback
+}
+
+const formatCurrencyValue = (value) => `INR ${Number(value || 0).toLocaleString('en-IN')}`
+
+const formatDateValue = (value, fallback = 'AUTO') => {
+  if (!value) return fallback
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return formatDisplayValue(value, fallback)
+  return parsed.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+const formatDateTimeValue = (value, fallback = 'AUTO') => {
+  if (!value) return fallback
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return formatDisplayValue(value, fallback)
+  return parsed.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const normalizeLookupKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+const getCaseInsensitiveValue = (source, candidates = []) => {
+  if (!source || typeof source !== 'object') return ''
+  const entries = Object.entries(source)
+  if (!entries.length) return ''
+  const normalizedMap = new Map(entries.map(([key, value]) => [normalizeLookupKey(key), value]))
+  for (const candidate of candidates) {
+    const normalized = normalizeLookupKey(candidate)
+    if (!normalized) continue
+    if (normalizedMap.has(normalized)) return normalizedMap.get(normalized)
+  }
+  return ''
+}
+
+const pickFirstValue = (sources, candidates, fallback = '-') => {
+  for (const source of sources) {
+    const value = getCaseInsensitiveValue(source, candidates)
+    const formatted = formatDisplayValue(value, '')
+    if (formatted) return formatted
+  }
+  return fallback
+}
+
+const summarizeObjectEntries = (source, limit = 3, fallback = '-') => {
+  if (!source || typeof source !== 'object') return fallback
+  const entries = Object.entries(source)
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim())
+    .slice(0, limit)
+    .map(([key, value]) => `${key}: ${String(value).trim()}`)
+  return entries.length ? entries.join(' | ') : fallback
+}
+
+const toYesNoUnknown = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return '-'
+  if (['yes', 'y', 'true', 'present', 'available'].includes(normalized)) return 'Yes'
+  if (['no', 'n', 'false', 'absent', 'none'].includes(normalized)) return 'No'
+  return formatDisplayValue(value)
+}
+
+const normalizeVerificationStatus = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 'Submitted'
+  if (normalized === 'verified') return 'Verified'
+  if (normalized === 'rejected') return 'Rejected'
+  if (normalized === 'flagged') return 'Flagged'
+  if (normalized === 'pending') return 'Pending'
+  return formatDisplayValue(value)
+}
+
+const inferNextStageLabel = (status) => {
+  switch (String(status || '').trim()) {
+    case 'Under Scrutiny': return 'Technical Evaluation'
+    case 'EDS': return 'Proponent Resubmission'
+    case 'Referred': return 'Committee Review'
+    case 'Finalized': return 'Completed'
+    default: return 'Technical Evaluation'
+  }
+}
+
+const resolveProposalType = (appRow, detailSources) => {
+  const explicit = pickFirstValue(detailSources, ['proposalType', 'proposal_type', 'proposal', 'expansionType', 'expansion_type'], '')
+  if (explicit && explicit !== '-') return explicit
+  const projectType = formatDisplayValue(appRow.project_type, '')
+  if (projectType) return projectType
+  return 'New / Expansion'
+}
+
+const buildScrutinyVerificationSummary = ({ docs, payment, review, appRow }) => {
+  const verifiedDocs = docs.filter((doc) => String(doc.verification_status || '').toLowerCase() === 'verified').length
+  const hasDeficiencies = String(appRow.status || '') === 'EDS'
+  const verificationResult = formatDisplayValue(review?.review_data?.verificationResult, '')
+  const reviewPassed = verificationResult === 'VERIFIED' || String(review?.review_data?.verified || '') === 'true'
+  const paymentOk = ['verified', 'paid'].includes(String(payment?.status || '').toLowerCase()) || String(review?.payment_verification || '').toLowerCase() === 'verified'
+
+  return [
+    ['Data Completeness', hasDeficiencies ? 'Requires Clarification' : reviewPassed ? 'Passed' : 'Under Review'],
+    ['Document Verification', docs.length ? (verifiedDocs === docs.length ? 'Passed' : verifiedDocs > 0 ? 'Partially Verified' : 'Pending Review') : 'Pending Uploads'],
+    ['Eligibility Check', hasDeficiencies ? 'Requires Clarification' : ['Under Scrutiny', 'Referred', 'Finalized'].includes(String(appRow.status || '')) ? 'Passed' : 'Under Review'],
+    ['Compliance Check', paymentOk ? 'Passed' : hasDeficiencies ? 'Requires Clarification' : 'Pending Review'],
+  ]
+}
+
+const buildScrutinyOfficerRemarks = ({ review, appRow, docs, generatedAt }) => {
+  const directNotes = formatDisplayValue(review?.review_notes, '')
+  if (directNotes) return directNotes
+  if (String(appRow.status || '') === 'EDS') {
+    return formatDisplayValue(appRow.eds_comments, 'The proposal requires clarifications from the proponent before it can proceed to the next scrutiny stage.')
+  }
+  if (docs.length) {
+    return `The proposal submitted by the proponent has been examined during the scrutiny stage. ${docs.length} supporting document(s) and the application details were reviewed on ${formatDateTimeValue(generatedAt)}.`
+  }
+  return 'The proposal submitted by the proponent has been examined during the scrutiny stage. All mandatory information currently available in the system has been compiled into this GIST for further evaluation.'
+}
+
+function buildScrutinyGistDocumentModel({ appRow, docs, payment, review, generatedBy, generatedAt }) {
+  const environmentalData = safeJson(appRow.environmental_data, {})
+  const sectorParams = safeJson(appRow.sector_params_data, {})
+  const reviewData = safeJson(review?.review_data, {})
+  const detailSources = [environmentalData, sectorParams, reviewData]
+
+  const locationCoords = formatDisplayValue(appRow.coordinates, '-')
+  const projectDescription = formatDisplayValue(appRow.project_description, '-')
+  const projectObjective = pickFirstValue(detailSources, ['projectObjective', 'project_objective', 'objective'], projectDescription)
+  const installedCapacity = pickFirstValue(detailSources, ['installedCapacity', 'installed_capacity', 'capacity', 'scale', 'projectScale'], summarizeObjectEntries(sectorParams, 2, '-'))
+  const projectTimeline = pickFirstValue(detailSources, ['expectedTimeline', 'expected_timeline', 'timeline', 'projectTimeline', 'project_timeline'], '-')
+  const village = pickFirstValue(detailSources, ['village', 'villageName', 'village_name'], '-')
+  const landType = pickFirstValue(detailSources, ['landType', 'land_type', 'ownershipType', 'ownership_type'], '-')
+  const landUseClassification = pickFirstValue(detailSources, ['landUseClassification', 'land_use_classification', 'landUse', 'land_use'], '-')
+  const protectedAreaDistance = pickFirstValue(detailSources, ['distanceFromProtectedAreas', 'distance_from_protected_areas', 'protectedAreaDistance', 'protected_area_distance'], '-')
+  const forestPresence = toYesNoUnknown(getCaseInsensitiveValue(environmentalData, ['presenceOfForestLand', 'presence_of_forest_land', 'forestLand', 'forest_land']))
+  const waterSource = pickFirstValue(detailSources, ['waterSource', 'water_source'], pickFirstValue(detailSources, ['resources', 'resourceSource'], '-'))
+  const wasteManagementPlan = pickFirstValue(detailSources, ['wasteManagementPlan', 'waste_management_plan', 'wastePlan', 'waste_plan'], '-')
+  const proposalType = resolveProposalType(appRow, detailSources)
+
+  const documentRows = docs.length
+    ? docs.map((doc) => [
+        `${formatDisplayValue(doc.doc_name)}${doc.original_name ? ` (${formatDisplayValue(doc.original_name)})` : ''}`,
+        normalizeVerificationStatus(doc.verification_status),
+      ])
+    : [['No supporting documents available in the application record', 'Pending']]
+
+  return {
+    title: GIST_TITLE,
+    meta: {
+      applicationId: formatDisplayValue(appRow.application_id, 'AUTO-GENERATED'),
+      projectName: formatDisplayValue(appRow.project_name),
+      proponentName: formatDisplayValue(appRow.owner_name),
+      organization: formatDisplayValue(appRow.organization),
+      category: formatDisplayValue(appRow.category),
+      sector: formatDisplayValue(appRow.sector_name),
+      status: formatDisplayValue(appRow.status),
+      generatedAt,
+      generatedBy: formatDisplayValue(generatedBy, 'System'),
+    },
+    sections: [
+      {
+        title: '1. Basic Application Information',
+        headers: ['Field', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Application ID', formatDisplayValue(appRow.application_id, 'AUTO-GENERATED')],
+          ['Submission Date', formatDateValue(appRow.created_at)],
+          ['Proponent Name', formatDisplayValue(appRow.owner_name)],
+          ['Organization', formatDisplayValue(appRow.organization)],
+          ['Project Title', formatDisplayValue(appRow.project_name)],
+          ['Category', formatDisplayValue(appRow.category)],
+          ['Sector', formatDisplayValue(appRow.sector_name)],
+          ['Proposal Type', proposalType],
+        ],
+      },
+      {
+        title: '2. Project Overview',
+        headers: ['Parameter', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Project Description', projectDescription],
+          ['Installed Capacity / Scale', installedCapacity],
+          ['Estimated Project Cost', formatCurrencyValue(appRow.estimated_cost)],
+          ['Expected Project Timeline', projectTimeline],
+          ['Project Objective', projectObjective],
+        ],
+      },
+      {
+        title: '3. Location Details',
+        headers: ['Parameter', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Village', village],
+          ['District', formatDisplayValue(appRow.district)],
+          ['State', formatDisplayValue(appRow.state)],
+          ['Latitude / Longitude', locationCoords],
+          ['Total Land Area', `${Number(appRow.land_area || 0).toLocaleString('en-IN')} ha`],
+          ['Land Type', landType],
+        ],
+      },
+      {
+        title: '4. Environmental Information',
+        headers: ['Parameter', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Land Use Classification', landUseClassification],
+          ['Distance from Protected Areas', protectedAreaDistance],
+          ['Presence of Forest Land', forestPresence],
+          ['Water Source', waterSource],
+          ['Waste Management Plan', wasteManagementPlan],
+        ],
+      },
+      {
+        title: '5. Key Documents Submitted',
+        headers: ['Document Name', 'Status'],
+        widths: [70, 30],
+        rows: documentRows,
+      },
+      {
+        title: '6. Scrutiny Verification Summary',
+        headers: ['Parameter', 'Status'],
+        widths: [58, 42],
+        rows: buildScrutinyVerificationSummary({ docs, payment, review, appRow }),
+      },
+      {
+        title: '7. Scrutiny Officer Remarks',
+        paragraphs: [buildScrutinyOfficerRemarks({ review, appRow, docs, generatedAt })],
+      },
+      {
+        title: '8. System Generated Metadata',
+        headers: ['Field', 'Value'],
+        widths: [32, 68],
+        rows: [
+          ['Scrutiny Status', formatDisplayValue(appRow.status, 'Approved')],
+          ['GIST Generated On', formatDateTimeValue(generatedAt)],
+          ['Generated By', formatDisplayValue(generatedBy, 'System')],
+          ['Next Stage', inferNextStageLabel(appRow.status)],
+        ],
+      },
+    ],
+  }
+}
+
+function buildFallbackScrutinyGistDocumentModel({ appRow, generatedBy, generatedAt, fallbackText = '' }) {
+  return {
+    title: GIST_TITLE,
+    meta: {
+      applicationId: formatDisplayValue(appRow?.application_id, 'AUTO-GENERATED'),
+      projectName: formatDisplayValue(appRow?.project_name),
+      proponentName: formatDisplayValue(appRow?.owner_name),
+      organization: formatDisplayValue(appRow?.organization),
+      category: formatDisplayValue(appRow?.category),
+      sector: formatDisplayValue(appRow?.sector_name),
+      status: formatDisplayValue(appRow?.status),
+      generatedAt,
+      generatedBy: formatDisplayValue(generatedBy, 'System'),
+    },
+    sections: [
+      {
+        title: '1. Basic Application Information',
+        headers: ['Field', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Application ID', formatDisplayValue(appRow?.application_id, 'AUTO-GENERATED')],
+          ['Submission Date', formatDateValue(appRow?.created_at)],
+          ['Proponent Name', formatDisplayValue(appRow?.owner_name)],
+          ['Organization', formatDisplayValue(appRow?.organization)],
+          ['Project Title', formatDisplayValue(appRow?.project_name)],
+          ['Category', formatDisplayValue(appRow?.category)],
+          ['Sector', formatDisplayValue(appRow?.sector_name)],
+          ['Proposal Type', formatDisplayValue(appRow?.project_type, 'New / Expansion')],
+        ],
+      },
+      {
+        title: '2. Project Overview',
+        headers: ['Parameter', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Project Description', formatDisplayValue(appRow?.project_description)],
+          ['Installed Capacity / Scale', '-'],
+          ['Estimated Project Cost', formatCurrencyValue(appRow?.estimated_cost)],
+          ['Expected Project Timeline', '-'],
+          ['Project Objective', '-'],
+        ],
+      },
+      {
+        title: '3. Location Details',
+        headers: ['Parameter', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Village', '-'],
+          ['District', formatDisplayValue(appRow?.district)],
+          ['State', formatDisplayValue(appRow?.state)],
+          ['Latitude / Longitude', formatDisplayValue(appRow?.coordinates)],
+          ['Total Land Area', `${Number(appRow?.land_area || 0).toLocaleString('en-IN')} ha`],
+          ['Land Type', '-'],
+        ],
+      },
+      {
+        title: '4. Environmental Information',
+        headers: ['Parameter', 'Details'],
+        widths: [32, 68],
+        rows: [
+          ['Land Use Classification', '-'],
+          ['Distance from Protected Areas', '-'],
+          ['Presence of Forest Land', '-'],
+          ['Water Source', '-'],
+          ['Waste Management Plan', '-'],
+        ],
+      },
+      {
+        title: '5. Key Documents Submitted',
+        headers: ['Document Name', 'Status'],
+        widths: [70, 30],
+        rows: [['Fallback recovery used existing stored gist content', 'Recovered']],
+      },
+      {
+        title: '6. Scrutiny Verification Summary',
+        headers: ['Parameter', 'Status'],
+        widths: [58, 42],
+        rows: [
+          ['Data Completeness', 'Recovered'],
+          ['Document Verification', 'Recovered'],
+          ['Eligibility Check', 'Recovered'],
+          ['Compliance Check', 'Recovered'],
+        ],
+      },
+      {
+        title: '7. Scrutiny Officer Remarks',
+        paragraphs: [
+          formatDisplayValue(
+            fallbackText,
+            'Auto-generated fallback gist was used because detailed GIST regeneration data could not be reconstructed fully from the database.',
+          ),
+        ],
+      },
+      {
+        title: '8. System Generated Metadata',
+        headers: ['Field', 'Value'],
+        widths: [32, 68],
+        rows: [
+          ['Scrutiny Status', formatDisplayValue(appRow?.status, 'Recovered')],
+          ['GIST Generated On', formatDateTimeValue(generatedAt)],
+          ['Generated By', formatDisplayValue(generatedBy, 'System')],
+          ['Next Stage', inferNextStageLabel(appRow?.status)],
+        ],
+      },
+    ],
+  }
+}
+
+function buildScrutinyGistText(model) {
+  const lines = [model.title, '']
+  for (const section of model.sections) {
+    lines.push(section.title)
+    if (section.rows?.length) {
+      for (const row of section.rows) {
+        if (row.length === 2) lines.push(`${row[0]}: ${row[1]}`)
+        else lines.push(row.join(' | '))
+      }
+    }
+    if (section.paragraphs?.length) lines.push(...section.paragraphs)
+    lines.push('')
+  }
+  return lines.join('\n').trim()
+}
+
+const buildDocxCellParagraphs = (text, bold = false) => {
+  const lines = String(text || '-').split(/\r?\n/)
+  return lines.map((line) => new Paragraph({
+    spacing: { after: 0 },
+    children: [new TextRun({ text: line || ' ', bold })],
+  }))
+}
+
+function createDocxTable(section) {
+  const widths = Array.isArray(section.widths) && section.widths.length === section.headers.length
+    ? section.widths
+    : new Array(section.headers.length).fill(Math.floor(100 / Math.max(section.headers.length, 1)))
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    rows: [
+      new TableRow({
+        children: section.headers.map((header, index) => new TableCell({
+          width: { size: widths[index], type: WidthType.PERCENTAGE },
+          verticalAlign: VerticalAlign.CENTER,
+          shading: { type: ShadingType.CLEAR, fill: GIST_TABLE_HEADER_FILL, color: 'auto' },
+          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+          children: buildDocxCellParagraphs(header, true),
+        })),
+      }),
+      ...section.rows.map((row) => new TableRow({
+        children: section.headers.map((_, index) => new TableCell({
+          width: { size: widths[index], type: WidthType.PERCENTAGE },
+          verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+          children: buildDocxCellParagraphs(row[index] ?? '-'),
+        })),
+      })),
+    ],
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: GIST_BORDER_COLOR },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: GIST_BORDER_COLOR },
+      left: { style: BorderStyle.SINGLE, size: 1, color: GIST_BORDER_COLOR },
+      right: { style: BorderStyle.SINGLE, size: 1, color: GIST_BORDER_COLOR },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: GIST_BORDER_COLOR },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: GIST_BORDER_COLOR },
+    },
+  })
+}
+
+async function writeScrutinyGistDocx(filePath, model) {
+  const children = [
+    new Paragraph({
+      heading: HeadingLevel.TITLE,
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 240 },
+      children: [new TextRun({ text: model.title, bold: true, size: 30 })],
+    }),
+  ]
+
+  for (const section of model.sections) {
+    children.push(new Paragraph({
+      spacing: { before: 220, after: 120 },
+      children: [new TextRun({ text: section.title, bold: true, size: 24 })],
+    }))
+    if (section.rows?.length) children.push(createDocxTable(section))
+    if (section.paragraphs?.length) {
+      for (const paragraphText of section.paragraphs) {
+        children.push(new Paragraph({
+          spacing: { after: 120 },
+          children: [new TextRun({ text: paragraphText })],
+        }))
+      }
+    }
+  }
+
+  const doc = new WordDocument({
+    sections: [{ properties: {}, children }],
+  })
+  const buffer = await Packer.toBuffer(doc)
+  fs.writeFileSync(filePath, buffer)
+}
+
+const getPdfPageBounds = (pdf) => ({
+  left: pdf.page.margins.left,
+  right: pdf.page.width - pdf.page.margins.right,
+  bottom: pdf.page.height - pdf.page.margins.bottom,
+  width: pdf.page.width - pdf.page.margins.left - pdf.page.margins.right,
+})
+
+const ensurePdfSpace = (pdf, heightNeeded) => {
+  const bounds = getPdfPageBounds(pdf)
+  if (pdf.y + heightNeeded > bounds.bottom) pdf.addPage()
+}
+
+const drawPdfSectionHeading = (pdf, title) => {
+  ensurePdfSpace(pdf, 28)
+  const bounds = getPdfPageBounds(pdf)
+  const startY = pdf.y
+  pdf.save()
+  pdf.roundedRect(bounds.left, startY, bounds.width, 22, 4).fill(`#${GIST_SECTION_FILL}`)
+  pdf.fillColor(`#${GIST_SECTION_TEXT}`).font('Helvetica-Bold').fontSize(10.5)
+  pdf.text(title, bounds.left + 8, startY + 6, { width: bounds.width - 16 })
+  pdf.restore()
+  pdf.y = startY + 30
+}
+
+const drawPdfTable = (pdf, section) => {
+  const bounds = getPdfPageBounds(pdf)
+  const padding = 6
+  const widths = Array.isArray(section.widths) && section.widths.length === section.headers.length
+    ? section.widths
+    : new Array(section.headers.length).fill(Math.floor(100 / Math.max(section.headers.length, 1)))
+  const columnWidths = widths.map((width, index) => index === widths.length - 1
+    ? bounds.width - widths.slice(0, -1).reduce((sum, item) => sum + (bounds.width * item / 100), 0)
+    : bounds.width * width / 100)
+
+  const drawRow = (row, options = {}) => {
+    pdf.font(options.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9.5)
+    const rowHeight = Math.max(
+      ...row.map((cell, index) => pdf.heightOfString(String(cell || '-'), {
+        width: columnWidths[index] - padding * 2,
+        align: 'left',
+      })),
+      12,
+    ) + padding * 2
+
+    ensurePdfSpace(pdf, rowHeight)
+    const rowTop = pdf.y
+    let cellX = bounds.left
+
+    for (let index = 0; index < row.length; index += 1) {
+      const cellText = String(row[index] || '-')
+      const cellWidth = columnWidths[index]
+      pdf.save()
+      pdf.rect(cellX, rowTop, cellWidth, rowHeight)
+      if (options.fill) {
+        pdf.fillAndStroke(options.fill, `#${GIST_BORDER_COLOR}`)
+      } else {
+        pdf.stroke(`#${GIST_BORDER_COLOR}`)
+      }
+      pdf.restore()
+      pdf.fillColor('#1F2937')
+      pdf.text(cellText, cellX + padding, rowTop + padding, {
+        width: cellWidth - padding * 2,
+        align: 'left',
+      })
+      cellX += cellWidth
+    }
+
+    pdf.y = rowTop + rowHeight
+  }
+
+  drawRow(section.headers, { bold: true, fill: `#${GIST_TABLE_HEADER_FILL}` })
+  for (const row of section.rows) drawRow(row)
+  pdf.moveDown(0.6)
+}
+
+function writeScrutinyGistPdf(filePath, model) {
+  return new Promise((resolve, reject) => {
+    const meta = model.meta || {}
+    const generatedDateStr = meta.generatedAt
+      ? formatDateTimeValue(meta.generatedAt)
+      : formatDateTimeValue(new Date().toISOString())
+
+    // Margins: extra top/bottom space reserved for running header and footer bands
+    const PDF_MARGINS = { top: 80, bottom: 64, left: 40, right: 40 }
+    const HEADER_BAND_H = 36
+
+    const pdf = new PDFDocument({ margins: PDF_MARGINS, size: 'A4', autoFirstPage: false })
+    const stream = fs.createWriteStream(filePath)
+    pdf.pipe(stream)
+
+    let pageNumber = 0
+    let enableHeaderFooter = false
+
+    const drawRunningHeader = () => {
+      const pw = pdf.page.width
+      const cw = pw - PDF_MARGINS.left - PDF_MARGINS.right
+      pdf.save()
+      pdf.rect(0, 0, pw, HEADER_BAND_H).fill(`#${GIST_SECTION_FILL}`)
+      pdf.fontSize(7.5).font('Helvetica-Bold').fillColor(`#${GIST_SECTION_TEXT}`)
+        .text(
+          'Government of India  |  Ministry of Environment, Forest and Climate Change',
+          PDF_MARGINS.left, 8,
+          { width: cw * 0.72, lineBreak: false },
+        )
+      pdf.fontSize(7).font('Helvetica').fillColor('#374151')
+        .text(
+          `PARIVESH Portal${meta.applicationId ? `  |  Ref: ${meta.applicationId}` : ''}`,
+          PDF_MARGINS.left, 22,
+          { width: cw, align: 'right', lineBreak: false },
+        )
+      pdf.strokeColor(`#${GIST_BORDER_COLOR}`).lineWidth(0.5)
+        .moveTo(0, HEADER_BAND_H).lineTo(pw, HEADER_BAND_H).stroke()
+      pdf.restore()
+    }
+
+    const drawRunningFooter = () => {
+      const pw = pdf.page.width
+      const ph = pdf.page.height
+      const cw = pw - PDF_MARGINS.left - PDF_MARGINS.right
+      const fy = ph - PDF_MARGINS.bottom + 6
+      pdf.save()
+      pdf.strokeColor(`#${GIST_BORDER_COLOR}`).lineWidth(0.5)
+        .moveTo(PDF_MARGINS.left, ph - PDF_MARGINS.bottom)
+        .lineTo(pw - PDF_MARGINS.right, ph - PDF_MARGINS.bottom).stroke()
+      pdf.fontSize(7).font('Helvetica').fillColor('#9CA3AF')
+        .text('Parivesh Environmental Portal  |  For Official Use Only', PDF_MARGINS.left, fy, {
+          width: cw * 0.6, align: 'left', lineBreak: false,
+        })
+        .text(`Page ${pageNumber}  |  ${generatedDateStr}`, PDF_MARGINS.left, fy, {
+          width: cw, align: 'right', lineBreak: false,
+        })
+      pdf.restore()
+    }
+
+    // pageAdded fires before PDFKit resets pdf.x / pdf.y, so header/footer draw
+    // safely; PDFKit then resets cursor to (margins.left, margins.top) after the event.
+    pdf.on('pageAdded', () => {
+      pageNumber++
+      if (enableHeaderFooter) {
+        drawRunningHeader()
+        drawRunningFooter()
+      }
+    })
+
+    // ─── Page 1: Cover page ──────────────────────────────────────────────────
+    pdf.addPage()   // pageNumber = 1, enableHeaderFooter = false → no header/footer
+    enableHeaderFooter = true
+
+    const pw = pdf.page.width
+    const ph = pdf.page.height
+    const cw = pw - PDF_MARGINS.left - PDF_MARGINS.right
+
+    // Top governmental band
+    pdf.rect(0, 0, pw, 68).fill(`#${GIST_SECTION_FILL}`)
+    pdf.fontSize(11).font('Helvetica-Bold').fillColor(`#${GIST_SECTION_TEXT}`)
+      .text('Government of India', 0, 11, { width: pw, align: 'center', lineBreak: false })
+    pdf.fontSize(9.5).font('Helvetica').fillColor(`#${GIST_SECTION_TEXT}`)
+      .text('Ministry of Environment, Forest and Climate Change', 0, 28, { width: pw, align: 'center', lineBreak: false })
+    pdf.fontSize(8.5).font('Helvetica').fillColor('#2D6A4F')
+      .text('Parivesh Environmental Clearance Portal', 0, 47, { width: pw, align: 'center', lineBreak: false })
+
+    // Switch to flow positioning below the top band
+    pdf.x = PDF_MARGINS.left
+    pdf.y = 86
+
+    // PARIVESH branding
+    pdf.fontSize(34).font('Helvetica-Bold').fillColor(`#${GIST_SECTION_TEXT}`)
+      .text('PARIVESH', { align: 'center', width: cw })
+    pdf.moveDown(0.2)
+    pdf.fontSize(11).font('Helvetica').fillColor('#6B7280')
+      .text('Environmental Clearance Portal', { align: 'center', width: cw })
+    pdf.moveDown(0.6)
+
+    // Thin horizontal rule
+    const rule1Y = pdf.y
+    pdf.strokeColor(`#${GIST_BORDER_COLOR}`).lineWidth(1.5)
+      .moveTo(PDF_MARGINS.left + 60, rule1Y)
+      .lineTo(pw - PDF_MARGINS.right - 60, rule1Y).stroke()
+    pdf.y = rule1Y + 18
+
+    // Document type label
+    pdf.fontSize(17).font('Helvetica-Bold').fillColor('#0F172A')
+      .text('SCRUTINY GIST DOCUMENT', { align: 'center', width: cw })
+    pdf.moveDown(0.25)
+    pdf.fontSize(8.5).font('Helvetica').fillColor('#6B7280')
+      .text('Auto-Generated After Successful Scrutiny Review  —  PARIVESH Portal', { align: 'center', width: cw })
+    pdf.moveDown(0.8)
+
+    // Application ID pill
+    if (meta.applicationId) {
+      const pillW = Math.min(280, cw)
+      const pillX = PDF_MARGINS.left + (cw - pillW) / 2
+      const pillY = pdf.y
+      pdf.roundedRect(pillX, pillY, pillW, 28, 7).fill('#0F172A')
+      pdf.fontSize(10.5).font('Helvetica-Bold').fillColor('#FFFFFF')
+        .text(`Application Ref: ${meta.applicationId}`, pillX, pillY + 9, { width: pillW, align: 'center', lineBreak: false })
+      pdf.y = pillY + 42
+    }
+
+    pdf.moveDown(0.4)
+
+    // Summary details table
+    const coverItems = [
+      ['Project Title',    meta.projectName    || '-'],
+      ['Proponent',        meta.proponentName  || '-'],
+      ['Organization',     meta.organization   || '-'],
+      ['Category',         meta.category       || '-'],
+      ['Sector',           meta.sector         || '-'],
+      ['Current Status',   meta.status         || '-'],
+      ['Document Generated', generatedDateStr],
+      ['Generated By',     meta.generatedBy    || 'System'],
+    ]
+    const boxLeft   = PDF_MARGINS.left + 20
+    const boxWidth  = cw - 40
+    const labelColW = boxWidth * 0.35
+    const valueColW = boxWidth * 0.65
+    const itemH     = 22
+    const boxTop    = pdf.y
+    const boxTotalH = coverItems.length * itemH + 4
+
+    // Box border
+    pdf.roundedRect(boxLeft, boxTop, boxWidth, boxTotalH, 5).stroke(`#${GIST_BORDER_COLOR}`)
+
+    for (let i = 0; i < coverItems.length; i++) {
+      const [label, val] = coverItems[i]
+      const rY = boxTop + 2 + i * itemH
+      if (i % 2 === 0) {
+        pdf.rect(boxLeft, rY, boxWidth, itemH).fill(`#${GIST_TABLE_HEADER_FILL}`)
+      }
+      // Vertical divider
+      pdf.strokeColor(`#${GIST_BORDER_COLOR}`).lineWidth(0.4)
+        .moveTo(boxLeft + labelColW, rY)
+        .lineTo(boxLeft + labelColW, rY + itemH).stroke()
+      // Horizontal divider between rows
+      if (i > 0) {
+        pdf.lineWidth(0.3)
+          .moveTo(boxLeft, rY).lineTo(boxLeft + boxWidth, rY).stroke()
+      }
+      pdf.fontSize(7.8).font('Helvetica-Bold').fillColor('#374151')
+        .text(String(label), boxLeft + 6, rY + 7, { width: labelColW - 10, lineBreak: false })
+      pdf.fontSize(7.8).font('Helvetica').fillColor('#111827')
+        .text(String(val).slice(0, 65), boxLeft + labelColW + 6, rY + 7, { width: valueColW - 10, lineBreak: false })
+    }
+
+    // Bottom bar (absolute position)
+    pdf.rect(0, ph - 36, pw, 36).fill(`#${GIST_SECTION_FILL}`)
+    pdf.fontSize(7.5).font('Helvetica').fillColor('#2D6A4F')
+      .text(
+        'This is a computer-generated document from the PARIVESH Environmental Clearance Portal.  Government of India.',
+        0, ph - 23,
+        { width: pw, align: 'center', lineBreak: false },
+      )
+
+    // ─── Content pages ────────────────────────────────────────────────────────
+    // pageAdded fires: pageNumber=2, enableHeaderFooter=true → header/footer drawn
+    // PDFKit then resets pdf.y = PDF_MARGINS.top = 80
+    pdf.addPage()
+
+    for (const section of model.sections) {
+      drawPdfSectionHeading(pdf, section.title)
+      if (section.rows?.length) drawPdfTable(pdf, section)
+      if (section.paragraphs?.length) {
+        for (const paragraphText of section.paragraphs) {
+          ensurePdfSpace(pdf, 40)
+          pdf.font('Helvetica').fontSize(9.8).fillColor('#1F2937').text(paragraphText, {
+            align: 'left',
+            lineGap: 3,
+          })
+          pdf.moveDown(0.6)
+        }
+      }
+    }
+
+    // ─── Certification & Sign-off block ──────────────────────────────────────
+    ensurePdfSpace(pdf, 110)
+    const certBounds = getPdfPageBounds(pdf)
+    pdf.moveDown(0.6)
+    pdf.strokeColor(`#${GIST_BORDER_COLOR}`).lineWidth(0.8)
+      .moveTo(certBounds.left, pdf.y).lineTo(certBounds.right, pdf.y).stroke()
+    pdf.y += 8
+
+    drawPdfSectionHeading(pdf, '9. Document Certification & Sign-off')
+
+    pdf.font('Helvetica').fontSize(8.5).fillColor('#374151')
+      .text(
+        `This Scrutiny GIST Document has been automatically generated by the PARIVESH Environmental Clearance Portal, ` +
+        `Ministry of Environment, Forest and Climate Change, Government of India. ` +
+        `It summarises the scrutiny findings for Application Ref: ${meta.applicationId || '(see cover page)'} ` +
+        `and constitutes an official system record. The contents of this document should be treated as confidential ` +
+        `and used only for the purposes of the environmental clearance process.`,
+        { align: 'justify', lineGap: 2, width: certBounds.width },
+      )
+    pdf.moveDown(1.4)
+
+    const sigY = pdf.y
+    pdf.strokeColor('#9CA3AF').lineWidth(0.5)
+      .moveTo(certBounds.left, sigY).lineTo(certBounds.left + 210, sigY).stroke()
+    pdf.moveTo(certBounds.right - 150, sigY).lineTo(certBounds.right, sigY).stroke()
+    pdf.moveDown(0.3)
+    const sigLabelY = pdf.y
+    pdf.fontSize(7.5).font('Helvetica').fillColor('#6B7280')
+      .text('Scrutiny Officer / Designated Authority', certBounds.left, sigLabelY, { width: 210 })
+    pdf.text(`Date: ${formatDateValue(meta.generatedAt)}`, certBounds.right - 150, sigLabelY, { width: 150, align: 'right' })
+    pdf.moveDown(0.2)
+    pdf.text('Ministry of Environment, Forest and Climate Change, GoI', certBounds.left, pdf.y, { width: 310 })
+
+    pdf.end()
+    stream.on('finish', resolve)
+    stream.on('error', reject)
+  })
+}
+
+async function writeScrutinyGistArtifacts({ prefix, stamp, model }) {
+  const docxFile = `${prefix}_${stamp}.docx`
+  const pdfFile = `${prefix}_${stamp}.pdf`
+  const docxPath = path.join(uploadsDir, docxFile)
+  const pdfPath = path.join(uploadsDir, pdfFile)
+
+  await writeScrutinyGistDocx(docxPath, model)
+  await writeScrutinyGistPdf(pdfPath, model)
+
+  return { docxFile, pdfFile, docxPath, pdfPath }
+}
+
 async function writeReportArtifacts({ prefix, stamp, title, text }) {
   const docxFile = `${prefix}_${stamp}.docx`
   const pdfFile = `${prefix}_${stamp}.pdf`
@@ -438,71 +1268,22 @@ function toPrettyLines(value) {
   return [String(value)]
 }
 
-function buildScrutinyGistText({ appRow, docs, payment, templateLabel, generatedBy, generatedAt }) {
-  const env = safeJson(appRow.environmental_data, {})
-  const sectorParams = safeJson(appRow.sector_params_data, {})
-  const aiReport = safeJson(appRow.ai_compliance_report, {})
-  const location = [appRow.district, appRow.state].filter(Boolean).join(', ') || '-'
-  const aiObservations = Array.isArray(aiReport.environmentalObservations) ? aiReport.environmentalObservations.slice(0, 3) : []
-  const aiFocusAreas = Array.isArray(aiReport.verificationFocusAreas) ? aiReport.verificationFocusAreas.slice(0, 3) : []
-  const lines = [
-    `PARIVESH Auto Generated Meeting Gist (${appRow.category})`,
-    '',
-    'Application Summary:',
-    `Application ID: ${appRow.application_id}`,
-    `Project Name: ${appRow.project_name}`,
-    `Project Proponent: ${appRow.owner_name || '-'}`,
-    `Organization: ${appRow.organization}`,
-    `Sector: ${appRow.sector_name}`,
-    `Project Type: ${appRow.project_type || '-'}`,
-    `Location: ${location}`,
-    `Land Area: ${Number(appRow.land_area || 0).toLocaleString('en-IN')} ha`,
-    `Estimated Cost: INR ${Number(appRow.estimated_cost || 0).toLocaleString('en-IN')}`,
-    `Current Status: ${appRow.status}`,
-    `Payment Status: ${payment?.status || appRow.payment_status || 'Not Initiated'}`,
-    '',
-    'Project Description:',
-    ...toPrettyLines(appRow.project_description || '-'),
-    '',
-    'Environmental Details:',
-    ...toPrettyLines(env),
-    '',
-    'Sector Parameters:',
-    ...toPrettyLines(sectorParams),
-    '',
-    'Submitted Documents:',
-    ...(docs.length
-      ? docs.flatMap((doc, index) => [
-          `${index + 1}. ${doc.doc_name} (${doc.original_name})`,
-          `   Verification: ${doc.verification_status}`,
-          `   Deficiency Comment: ${doc.deficiency_comment || 'None'}`,
-        ])
-      : ['No supporting documents uploaded yet.']),
-    '',
-    'Generation Notes:',
-    `Template Source: ${templateLabel}`,
-    `Generated By: ${generatedBy}`,
-    `Generated At: ${generatedAt}`,
-    '',
-    'Recommended Scrutiny Notes:',
-    '1. Validate environmental data against submitted annexures.',
-    '2. Verify document completeness and consistency with sector requirements.',
-    '3. Confirm payment status before referring to MoM.',
-    '',
-    'AI Compliance Highlights (Advisory):',
-    ...(aiObservations.length
-      ? aiObservations.map((item, index) => `${index + 1}. ${item}`)
-      : ['No AI compliance observations available.']),
-    ...(aiFocusAreas.length
-      ? [
-          '',
-          'AI Suggested Verification Focus:',
-          ...aiFocusAreas.map((item, index) => `${index + 1}. ${item}`),
-        ]
-      : []),
-  ]
+function loadScrutinyGistSourceData(appId) {
+  const appRow = db.prepare(`
+    SELECT a.*, s.name as sector_name, u.full_name as owner_name
+    FROM applications a
+    JOIN sectors s ON s.id = a.sector_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE a.id = ?
+  `).get(appId)
+  if (!appRow) throw new Error('Application not found.')
 
-  return lines.join('\n')
+  return {
+    appRow,
+    docs: parseDocumentsWithVerification(appRow.id),
+    payment: parsePaymentForReview(appRow.id),
+    review: db.prepare('SELECT review_data, payment_verification, review_notes, reviewed_by, reviewed_at FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id),
+  }
 }
 
 function readLegacyGistText(gistRow) {
@@ -790,6 +1571,13 @@ app.post('/api/pp/applications', auth, (req, res) => {
     queueAiCompliancePrecheck(result.lastInsertRowid, 'pp_create_submitted')
     queueSubmissionAudit(result.lastInsertRowid, req.user, 'Application Submitted')
     queueWorkflowAudit(result.lastInsertRowid, 'Application Submitted', req.user)
+    createPpNotification({
+      userId: req.user.id,
+      applicationId: result.lastInsertRowid,
+      type: 'success',
+      title: 'Application Submitted',
+      message: `Your application ${appId} has been submitted successfully and moved to scrutiny queue.`,
+    })
   }
 
   const created = db.prepare('SELECT * FROM applications WHERE id = ?').get(result.lastInsertRowid)
@@ -954,6 +1742,13 @@ app.patch('/api/pp/applications/:id/payment/mark-paid', auth, (req, res) => {
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(row.id, nextAppStatus, 'Payment marked paid by PP. Pending scrutiny verification.', req.user.login_id)
   queueWorkflowAudit(row.id, 'Payment marked paid', req.user)
+  createPpNotification({
+    userId: req.user.id,
+    applicationId: row.id,
+    type: 'info',
+    title: 'Payment Submitted',
+    message: `Payment reference ${String(upiRef || '').trim() || '-'} has been submitted. Verification is pending scrutiny review.`,
+  })
 
   if (nextAppStatus === 'Submitted') {
     queueAiCompliancePrecheck(row.id, 'payment_mark_paid_submitted')
@@ -965,7 +1760,7 @@ app.patch('/api/pp/applications/:id/payment/mark-paid', auth, (req, res) => {
 app.get('/api/pp/applications/:id/tracking', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM applications WHERE id = ? AND owner_user_id = ?').get(req.params.id, req.user.id)
   if (!row) return res.status(404).json({ message: 'Application not found.' })
-  const history = db.prepare('SELECT status, comment, created_at FROM application_status_history WHERE application_id = ? ORDER BY created_at ASC').all(row.id)
+  const history = db.prepare('SELECT id, status, comment, created_by, created_at FROM application_status_history WHERE application_id = ? ORDER BY created_at ASC').all(row.id)
   if (!row.ai_compliance_report && ['Submitted', 'Under Scrutiny', 'EDS', 'Referred', 'Finalized'].includes(row.status)) {
     queueAiCompliancePrecheck(row.id, 'pp_tracking_lazy_load')
   }
@@ -976,6 +1771,102 @@ app.get('/api/pp/applications/:id/tracking', auth, (req, res) => {
     edsComments: row.eds_comments,
     edsSummary: row.eds_summary || '',
     paymentStatus: row.payment_status,
+    history,
+  })
+})
+
+app.get('/api/pp/payments/recent', auth, (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 50)
+  const rows = db.prepare(`
+    SELECT p.id, p.application_id, p.amount, p.upi_ref, p.status, p.verified_by, p.verified_at, p.updated_at,
+           a.application_id as application_ref, a.project_name, a.category, a.status as application_status,
+           s.name as sector_name
+    FROM application_payments p
+    JOIN applications a ON a.id = p.application_id
+    JOIN sectors s ON s.id = a.sector_id
+    WHERE a.owner_user_id = ?
+      AND p.status IN ('Pending Verification', 'Verified', 'Invalid')
+    ORDER BY p.updated_at DESC, p.id DESC
+    LIMIT ?
+  `).all(req.user.id, limit)
+  res.json(rows)
+})
+
+app.get('/api/pp/notifications', auth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT n.id, n.application_id, n.type, n.title, n.message, n.is_read, n.created_at,
+           a.application_id as application_ref
+    FROM pp_notifications n
+    LEFT JOIN applications a ON a.id = n.application_id
+    WHERE n.user_id = ?
+    ORDER BY n.created_at DESC, n.id DESC
+    LIMIT 200
+  `).all(req.user.id)
+  res.json(rows)
+})
+
+app.patch('/api/pp/notifications/:id/read', auth, (req, res) => {
+  const notificationId = Number(req.params.id)
+  const { read = true } = req.body || {}
+  const existing = db.prepare('SELECT id FROM pp_notifications WHERE id = ? AND user_id = ?').get(notificationId, req.user.id)
+  if (!existing) return res.status(404).json({ message: 'Notification not found.' })
+  db.prepare('UPDATE pp_notifications SET is_read = ? WHERE id = ? AND user_id = ?')
+    .run(read ? 1 : 0, notificationId, req.user.id)
+  res.json({ ok: true })
+})
+
+app.patch('/api/pp/notifications/read-all', auth, (req, res) => {
+  db.prepare('UPDATE pp_notifications SET is_read = 1 WHERE user_id = ?').run(req.user.id)
+  res.json({ ok: true })
+})
+
+app.delete('/api/pp/notifications/:id', auth, (req, res) => {
+  const notificationId = Number(req.params.id)
+  const result = db.prepare('DELETE FROM pp_notifications WHERE id = ? AND user_id = ?').run(notificationId, req.user.id)
+  if (!result.changes) return res.status(404).json({ message: 'Notification not found.' })
+  res.json({ ok: true })
+})
+
+app.delete('/api/pp/notifications', auth, (req, res) => {
+  db.prepare('DELETE FROM pp_notifications WHERE user_id = ?').run(req.user.id)
+  res.json({ ok: true })
+})
+
+app.get('/api/public/track', (req, res) => {
+  const reference = String(req.query.ref || '').trim()
+  if (!reference) return res.status(400).json({ message: 'Application reference is required.' })
+
+  const row = db.prepare(`
+    SELECT a.id, a.application_id, a.status, a.payment_status, a.project_name, a.category,
+           a.state, a.district, a.eds_comments, a.eds_summary, a.updated_at,
+           s.name as sector_name
+    FROM applications a
+    JOIN sectors s ON s.id = a.sector_id
+    WHERE lower(a.application_id) = lower(?)
+  `).get(reference)
+
+  if (!row) return res.status(404).json({ message: 'No application found for the provided reference.' })
+
+  const history = db.prepare(
+    'SELECT status, comment, created_at FROM application_status_history WHERE application_id = ? ORDER BY created_at ASC'
+  ).all(row.id)
+
+  const stageSequence = ['Draft', 'Submitted', 'Under Scrutiny', 'EDS', 'Referred', 'Finalized']
+  const currentStageIndex = Math.max(stageSequence.indexOf(String(row.status || '')), 0)
+
+  res.json({
+    applicationId: row.application_id,
+    projectName: row.project_name,
+    category: row.category,
+    sectorName: row.sector_name,
+    status: row.status,
+    paymentStatus: row.payment_status,
+    location: [row.district, row.state].filter(Boolean).join(', '),
+    updatedAt: row.updated_at,
+    edsComments: row.eds_comments || '',
+    edsSummary: row.eds_summary || '',
+    currentStageIndex,
+    stageSequence,
     history,
   })
 })
@@ -1205,34 +2096,42 @@ const upsertScrutinyReview = ({ appId, paymentVerification, reviewData, reviewNo
 }
 
 async function generateAndStoreScrutinyGist(appId, generatedBy) {
-  const appRow = db.prepare(`
-    SELECT a.*, s.name as sector_name, u.full_name as owner_name
-    FROM applications a
-    JOIN sectors s ON s.id = a.sector_id
-    JOIN users u ON u.id = a.owner_user_id
-    WHERE a.id = ?
-  `).get(appId)
-  if (!appRow) throw new Error('Application not found.')
-
-  const tpl = db.prepare('SELECT * FROM templates WHERE category = ? ORDER BY uploaded_at DESC LIMIT 1').get(appRow.category)
-  const docs = parseDocumentsWithVerification(appRow.id)
-  const payment = parsePaymentForReview(appRow.id)
+  const { appRow, docs, payment, review } = loadScrutinyGistSourceData(appId)
   const generatedAt = new Date().toISOString()
-  const gistText = buildScrutinyGistText({
+  const fallbackModel = buildFallbackScrutinyGistDocumentModel({
     appRow,
-    docs,
-    payment,
-    templateLabel: tpl ? `${tpl.name} (${tpl.original_name})` : 'Built-in auto gist template',
     generatedBy,
     generatedAt,
   })
+  const fallbackGistText = buildScrutinyGistText(fallbackModel)
 
-  const artifacts = await writeReportArtifacts({
-    prefix: 'gist',
-    stamp: `${Date.now()}_${appRow.id}`,
-    title: `PARIVESH Auto Generated Meeting Gist - ${appRow.application_id}`,
-    text: gistText,
-  })
+  let gistText = fallbackGistText
+  let artifacts
+  try {
+    const documentModel = buildScrutinyGistDocumentModel({
+      appRow,
+      docs,
+      payment,
+      review,
+      generatedBy,
+      generatedAt,
+    })
+    gistText = buildScrutinyGistText(documentModel)
+
+    artifacts = await writeScrutinyGistArtifacts({
+      prefix: 'gist',
+      stamp: `${Date.now()}_${appRow.id}`,
+      model: documentModel,
+    })
+  } catch (primaryError) {
+    console.error('[PARIVESH] Primary scrutiny gist generation failed. Retrying with fallback gist.', primaryError)
+    gistText = fallbackGistText
+    artifacts = await writeScrutinyGistArtifacts({
+      prefix: 'gist_fallback',
+      stamp: `${Date.now()}_${appRow.id}`,
+      model: fallbackModel,
+    })
+  }
 
   const existing = db.prepare('SELECT * FROM scrutiny_gists WHERE application_id = ?').get(appRow.id)
   if (existing) {
@@ -1254,6 +2153,62 @@ async function generateAndStoreScrutinyGist(appId, generatedBy) {
     generatedAt,
     docxDownloadUrl: `/api/scrutiny/applications/${appRow.id}/gist/docx`,
     pdfDownloadUrl: `/api/scrutiny/applications/${appRow.id}/gist/pdf`,
+  }
+}
+
+async function ensureScrutinyGistArtifacts(appId, requestedBy = 'system_recovery') {
+  const existing = db.prepare('SELECT * FROM scrutiny_gists WHERE application_id = ?').get(appId)
+  if (!existing) return null
+
+  const docxPath = path.join(uploadsDir, existing.docx_path || '')
+  const pdfPath = path.join(uploadsDir, existing.pdf_path || '')
+  const hasDocx = Boolean(existing.docx_path) && fs.existsSync(docxPath)
+  const hasPdf = Boolean(existing.pdf_path) && fs.existsSync(pdfPath)
+
+  if (hasDocx && hasPdf) return existing
+  if (!String(existing.gist_content || '').trim()) return null
+
+  try {
+    let model
+    try {
+      const { appRow, docs, payment, review } = loadScrutinyGistSourceData(appId)
+      model = buildScrutinyGistDocumentModel({
+        appRow,
+        docs,
+        payment,
+        review,
+        generatedBy: requestedBy,
+        generatedAt: new Date().toISOString(),
+      })
+    } catch (_) {
+      const appRow = db.prepare(`
+        SELECT a.*, s.name as sector_name, u.full_name as owner_name
+        FROM applications a
+        LEFT JOIN sectors s ON s.id = a.sector_id
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        WHERE a.id = ?
+      `).get(appId)
+      model = buildFallbackScrutinyGistDocumentModel({
+        appRow,
+        generatedBy: requestedBy,
+        generatedAt: new Date().toISOString(),
+        fallbackText: String(existing.gist_content || ''),
+      })
+    }
+
+    const artifacts = await writeScrutinyGistArtifacts({
+      prefix: 'gist_recovery',
+      stamp: `${Date.now()}_${appId}`,
+      model,
+    })
+
+    db.prepare('UPDATE scrutiny_gists SET docx_path = ?, pdf_path = ?, generated_by = ?, generated_at = datetime(\'now\') WHERE application_id = ?')
+      .run(artifacts.docxFile, artifacts.pdfFile, requestedBy, appId)
+
+    return db.prepare('SELECT * FROM scrutiny_gists WHERE application_id = ?').get(appId)
+  } catch (error) {
+    console.error('[PARIVESH] Failed to recover scrutiny gist artifacts from stored content', error)
+    return null
   }
 }
 
@@ -1409,6 +2364,13 @@ app.patch('/api/scrutiny/applications/:id/payment', scrutinyAuth, (req, res) => 
     .run(appPaymentStatus, verifiedBy, isVerifiedDecision ? new Date().toISOString() : null, payment.id)
   db.prepare('UPDATE applications SET payment_status = ?, status = ?, updated_at = datetime(\'now\') WHERE id = ?')
     .run(appPaymentStatus, 'Under Scrutiny', appRow.id)
+  createPpNotification({
+    userId: appRow.owner_user_id,
+    applicationId: appRow.id,
+    type: appPaymentStatus === 'Invalid' ? 'alert' : 'success',
+    title: 'Payment Review Updated',
+    message: `Scrutiny has updated your payment status to ${appPaymentStatus} for application ${appRow.application_id}.`,
+  })
   if (appRow.status !== 'Under Scrutiny') {
     queueWorkflowAudit(appRow.id, 'Scrutiny Review Started', req.user)
   }
@@ -1460,6 +2422,13 @@ app.post('/api/scrutiny/applications/:id/eds', scrutinyAuth, (req, res) => {
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'EDS', 'EDS issued by scrutiny team', req.user.login_id)
   queueWorkflowAudit(appRow.id, 'EDS Issued', req.user)
+  createPpNotification({
+    userId: appRow.owner_user_id,
+    applicationId: appRow.id,
+    type: 'alert',
+    title: 'EDS Issued',
+    message: `Your application ${appRow.application_id} has been sent back with EDS comments. Please review and resubmit.`,
+  })
 
   const existing = db.prepare('SELECT id FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
   if (existing) {
@@ -1507,6 +2476,13 @@ app.post('/api/scrutiny/applications/:id/verify', scrutinyAuth, async (req, res)
     db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
       .run(appRow.id, 'EDS', 'EDS auto-generated by scrutiny verification due to unmet requirements.', req.user.login_id)
     queueWorkflowAudit(appRow.id, 'EDS Issued', req.user)
+    createPpNotification({
+      userId: appRow.owner_user_id,
+      applicationId: appRow.id,
+      type: 'alert',
+      title: 'EDS Issued',
+      message: `Automated scrutiny checks found deficiencies for ${appRow.application_id}. Please correct and resubmit.`,
+    })
 
     const existingReview = db.prepare('SELECT payment_verification FROM scrutiny_reviews WHERE application_id = ?').get(appRow.id)
     upsertScrutinyReview({
@@ -1581,6 +2557,18 @@ app.post('/api/scrutiny/applications/:id/gist/generate', scrutinyAuth, async (re
     gist = await generateAndStoreScrutinyGist(Number(req.params.id), req.user.login_id)
   } catch (error) {
     console.error('[PARIVESH] Failed to generate scrutiny gist artifacts', error)
+    const recovered = await ensureScrutinyGistArtifacts(Number(req.params.id), req.user.login_id)
+    if (recovered) {
+      return res.json({
+        ok: true,
+        gist: {
+          generatedAt: recovered.generated_at || new Date().toISOString(),
+          docxDownloadUrl: `/api/scrutiny/applications/${Number(req.params.id)}/gist/docx`,
+          pdfDownloadUrl: `/api/scrutiny/applications/${Number(req.params.id)}/gist/pdf`,
+        },
+        warning: 'New gist generation failed. Existing gist content was recovered into fresh documents.',
+      })
+    }
     return res.status(500).json({ message: 'Failed to generate gist documents.' })
   }
 
@@ -1604,10 +2592,28 @@ app.get('/api/scrutiny/applications/:id/gist/:format', scrutinyAuth, (req, res) 
   const format = String(req.params.format).toLowerCase()
   if (!['docx', 'pdf'].includes(format)) return res.status(400).json({ message: 'Invalid format.' })
   const fileName = format === 'docx' ? gist.docx_path : gist.pdf_path
-  const filePath = path.join(uploadsDir, fileName)
-  if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'Generated gist file missing.' })
+  const filePath = path.join(uploadsDir, fileName || '')
 
-  res.download(filePath, `meeting_gist_${appRow.application_id}.${format}`)
+  const streamFile = (resolvedPath) => res.download(resolvedPath, `meeting_gist_${appRow.application_id}.${format}`)
+
+  if (fileName && fs.existsSync(filePath)) {
+    return streamFile(filePath)
+  }
+
+  ensureScrutinyGistArtifacts(appRow.id, req.user?.login_id || 'download_recovery')
+    .then((recovered) => {
+      if (!recovered) return res.status(404).json({ message: 'Generated gist file missing.' })
+      const recoveredName = format === 'docx' ? recovered.docx_path : recovered.pdf_path
+      const recoveredPath = path.join(uploadsDir, recoveredName || '')
+      if (!recoveredName || !fs.existsSync(recoveredPath)) {
+        return res.status(404).json({ message: 'Generated gist file missing.' })
+      }
+      return streamFile(recoveredPath)
+    })
+    .catch((error) => {
+      console.error('[PARIVESH] Failed to recover missing gist file during download', error)
+      return res.status(500).json({ message: 'Failed to recover missing gist file.' })
+    })
 })
 
 app.post('/api/scrutiny/applications/:id/refer', scrutinyAuth, async (req, res) => {
@@ -1898,6 +2904,13 @@ app.post('/api/mom/applications/:id/finalize', momAuth, (req, res) => {
   db.prepare(`UPDATE applications SET status = 'Finalized', updated_at = datetime('now') WHERE id = ?`).run(appRow.id)
   db.prepare('INSERT INTO application_status_history (application_id, status, comment, created_by) VALUES (?, ?, ?, ?)')
     .run(appRow.id, 'Finalized', 'Minutes of Meeting finalized and locked', req.user.login_id)
+  createPpNotification({
+    userId: appRow.owner_user_id,
+    applicationId: appRow.id,
+    type: 'success',
+    title: 'Application Finalized',
+    message: `Minutes of Meeting have been finalized for application ${appRow.application_id}. Final documents are now available.`,
+  })
 
   queueWorkflowAudit(appRow.id, 'MoM Finalized', req.user)
   queueMoMFinalizationAudit(appRow.id, momRecord.mom_pdf_path || momRecord.mom_docx_path, req.user)

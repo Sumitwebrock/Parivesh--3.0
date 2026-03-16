@@ -17,10 +17,10 @@ export function LoadingScreen() {
           }}
         >
           <svg viewBox="0 0 64 64" className="w-12 h-12">
-            <circle cx="32" cy="32" r="28" fill="#2E7D32" />
+            <circle cx="32" cy="32" r="28" fill="#281174" />
             <path
               d="M32 12 L38 24 L32 28 L26 24 Z M24 30 L30 42 L24 46 L18 42 Z M40 30 L46 42 L40 46 L34 42 Z"
-              fill="#81C784"
+              fill="#2736b9"
             />
             <circle cx="32" cy="32" r="6" fill="#C5E1A5" />
           </svg>

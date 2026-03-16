@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
-import { ArrowLeft, ArrowRight, Check, Loader2, MapPin, Save, Upload } from "lucide-react";
+import { Link, useSearchParams } from "react-router";
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Loader2, MapPin, Save, Upload, X } from "lucide-react";
 import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { ApplicationFeePaymentCard } from "../components/ApplicationFeePaymentCard";
@@ -9,6 +9,7 @@ import { INDIA_STATE_DISTRICTS, INDIAN_STATES } from "../utils/indiaLocations";
 const DEFAULT_UPI_ID = "sumitkumarsahoo772@okicici";
 import {
   createApplication,
+  fetchApplicationById,
   fetchPpConfig,
   initiatePayment,
   markPaymentPaid,
@@ -40,8 +41,13 @@ function parseCoordinateParts(raw: string): { latitude: string; longitude: strin
 }
 
 export default function NewApplication() {
+  const [searchParams] = useSearchParams();
+  const editApplicationId = Number(searchParams.get("edit") || 0);
+  const isEditMode = Number.isFinite(editApplicationId) && editApplicationId > 0;
+
   const [config, setConfig] = useState<PpConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
+  const [loadingApplication, setLoadingApplication] = useState(false);
   const [saving, setSaving] = useState(false);
   const [paymentActionLoading, setPaymentActionLoading] = useState(false);
   const [error, setError] = useState("");
@@ -86,13 +92,24 @@ export default function NewApplication() {
   const [upiId, setUpiId] = useState(DEFAULT_UPI_ID);
   const [upiRef, setUpiRef] = useState("");
   const [paymentMarked, setPaymentMarked] = useState(false);
+  const [isEdsReview, setIsEdsReview] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [showPaidAnimation, setShowPaidAnimation] = useState(false);
 
   const estimatedPaymentAmount = useMemo(() => {
     if (category === "A") return 15000;
-    if (category === "B1") return 10000;
+    if (category === "B1") return 2000;
     if (category === "B2") return 7000;
     return 5000;
   }, [category]);
+
+  useEffect(() => {
+    if (currentStep === 6) {
+      setPaymentModalOpen(true);
+      return;
+    }
+    setPaymentModalOpen(false);
+  }, [currentStep]);
 
   useEffect(() => {
     const run = async () => {
@@ -113,6 +130,92 @@ export default function NewApplication() {
     if (parsed.latitude === coordinateParts.latitude && parsed.longitude === coordinateParts.longitude) return;
     setCoordinateParts(parsed);
   }, [location.coordinates]);
+
+  useEffect(() => {
+    if (!isEditMode) return;
+
+    const run = async () => {
+      setLoadingApplication(true);
+      setError("");
+      try {
+        const app = await fetchApplicationById(editApplicationId);
+        let envData: Record<string, string> = {};
+        let paramsData: Record<string, string> = {};
+
+        try {
+          envData = app.environmental_data ? JSON.parse(app.environmental_data) as Record<string, string> : {};
+        } catch {
+          envData = {};
+        }
+
+        try {
+          paramsData = app.sector_params_data ? JSON.parse(app.sector_params_data) as Record<string, string> : {};
+        } catch {
+          paramsData = {};
+        }
+
+        const latestDocs = app.documents.reduce<Record<string, { id: number; name: string; uploadedAt: string }>>((acc, doc) => {
+          const existing = acc[doc.doc_name];
+          if (!existing || String(doc.uploaded_at) > String(existing.uploadedAt)) {
+            acc[doc.doc_name] = { id: doc.id, name: doc.original_name, uploadedAt: String(doc.uploaded_at) };
+          }
+          return acc;
+        }, {});
+
+        const normalizedDocs: Record<string, { id: number; name: string }> = {};
+        Object.entries(latestDocs).forEach(([name, value]) => {
+          normalizedDocs[name] = { id: value.id, name: value.name };
+        });
+
+        setApplicationId(app.id);
+        setApplicationRef(app.application_id);
+        setCategory(app.category);
+        setSectorId(app.sector_id);
+        setProject({
+          projectName: app.project_name || "",
+          organization: app.organization || "",
+          projectDescription: app.project_description || "",
+          estimatedCost: String(app.estimated_cost || ""),
+          projectType: app.project_type || "",
+        });
+        setLocation({
+          state: app.state || "",
+          district: app.district || "",
+          landmark: String(envData.landmark || ""),
+          coordinates: app.coordinates || "",
+          landArea: String(app.land_area || ""),
+        });
+        setEnvironmentalData({
+          impact: String(envData.impact || ""),
+          resources: String(envData.resources || ""),
+          wastePlan: String(envData.wastePlan || ""),
+        });
+        setSectorParams(paramsData);
+        setUploadedDocs(normalizedDocs);
+        setPaymentStatus(app.payment_status || app.payment?.status || "Not Initiated");
+        setPaymentInfo(app.payment
+          ? {
+              amount: Number(app.payment.amount || estimatedPaymentAmount),
+              qrPayload: String(app.payment.qr_payload || ""),
+              status: String(app.payment.status || app.payment_status || "Not Initiated"),
+              upiId: String(app.payment.payee_upi_id || DEFAULT_UPI_ID),
+              upiReferenceNote: String(app.payment.upi_reference_note || ""),
+            }
+          : null);
+
+        const hasPaymentProgress = ["Pending Verification", "Verified", "Paid"].includes(String(app.payment_status || ""));
+        setPaymentMarked(hasPaymentProgress);
+        setIsEdsReview(app.status === "EDS");
+        setCurrentStep(1);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load application for editing.");
+      } finally {
+        setLoadingApplication(false);
+      }
+    };
+
+    run();
+  }, [editApplicationId, estimatedPaymentAmount, isEditMode]);
 
   useEffect(() => {
     if (!location.state || !location.district || !location.landmark.trim()) return;
@@ -178,9 +281,9 @@ export default function NewApplication() {
       const requiredDocs = filteredChecklist.filter((d) => d.required === 1);
       return requiredDocs.every((d) => uploadedDocs[d.doc_name]);
     }
-    if (currentStep === 6) return paymentMarked;
+    if (currentStep === 6) return isEdsReview || paymentMarked;
     return true;
-  }, [category, currentStep, filteredChecklist, location.district, location.state, paymentMarked, project.organization, project.projectName, sectorId, uploadedDocs]);
+  }, [category, currentStep, filteredChecklist, isEdsReview, location.district, location.state, paymentMarked, project.organization, project.projectName, sectorId, uploadedDocs]);
 
   const persistApplication = async (saveAsDraft: boolean) => {
     if (!category || !sectorId) throw new Error("Please select category and sector.");
@@ -206,8 +309,13 @@ export default function NewApplication() {
     };
 
     if (applicationId) {
-      const nextStatus = saveAsDraft ? "Draft" : "Submitted";
-      const updated = await updateApplication(applicationId, { ...payload, status: nextStatus });
+      const updatePayload: Record<string, unknown> = { ...payload };
+      if (isEdsReview) {
+        if (!saveAsDraft) updatePayload.status = "Under Scrutiny";
+      } else {
+        updatePayload.status = saveAsDraft ? "Draft" : "Submitted";
+      }
+      const updated = await updateApplication(applicationId, updatePayload);
       setApplicationRef(updated.application_id);
       return updated.id;
     }
@@ -224,9 +332,26 @@ export default function NewApplication() {
     setSaving(true);
     try {
       await persistApplication(true);
-      setOk("Draft saved successfully.");
+      setOk(isEdsReview ? "Changes saved. You can now resend to scrutiny." : "Draft saved successfully.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to save draft.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onResendToScrutiny = async () => {
+    if (!applicationId) return;
+    setError("");
+    setOk("");
+    setSaving(true);
+    try {
+      await persistApplication(false);
+      setIsEdsReview(false);
+      setCurrentStep(7);
+      setOk("Application resubmitted successfully and moved back to Under Scrutiny.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to resend application.");
     } finally {
       setSaving(false);
     }
@@ -272,6 +397,8 @@ export default function NewApplication() {
       setPaymentStatus("Pending Verification");
       setPaymentMarked(true);
       setOk("Payment submitted. Application moved to Submitted and is now awaiting scrutiny payment verification.");
+      setShowPaidAnimation(true);
+      window.setTimeout(() => setShowPaidAnimation(false), 1800);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to mark paid.");
     } finally {
@@ -279,7 +406,7 @@ export default function NewApplication() {
     }
   };
 
-  if (loadingConfig) {
+  if (loadingConfig || loadingApplication) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-[#1A5C1A]" />
@@ -296,6 +423,12 @@ export default function NewApplication() {
         <Link to="/proponent" className="inline-flex items-center gap-2 text-[#1A5C1A] hover:underline mb-6">
           <ArrowLeft className="w-4 h-4" /> Back to Dashboard
         </Link>
+
+        {isEdsReview && (
+          <div className="mb-6 text-sm text-orange-800 bg-orange-50 border border-orange-200 px-4 py-3 rounded-lg">
+            This application is in EDS review. Update details/documents and click <strong>Resend to Scrutiny</strong>.
+          </div>
+        )}
 
         <div className="bg-white rounded-xl shadow-md p-6 mb-6">
           <div className="flex items-center gap-3 overflow-x-auto">
@@ -487,23 +620,86 @@ export default function NewApplication() {
           {currentStep === 6 && (
             <div className="space-y-4">
               <h2 className="text-xl font-semibold">Step 6: UPI Application Fee Payment</h2>
-              <ApplicationFeePaymentCard
-                applicationReference={applicationRef || (applicationId ? `Application #${applicationId}` : "Draft application")}
-                applicationTitle={project.projectName || "New application fee"}
-                workflowStatus={paymentMarked ? "Submitted" : "Draft"}
-                amount={paymentInfo?.amount ?? estimatedPaymentAmount}
-                qrPayload={paymentInfo?.qrPayload || ""}
-                upiId={upiId}
-                upiNote={paymentInfo?.upiReferenceNote || (applicationRef ? `Application-${applicationRef}` : "Application-Draft")}
-                paymentStatus={paymentStatus}
-                upiRef={upiRef}
-                onUpiRefChange={setUpiRef}
-                onMarkPaid={onMarkPaid}
-                onRefresh={onGeneratePayment}
-                loading={paymentActionLoading}
-                disableActions={false}
-                helperText={paymentInfo ? "Payment submission will automatically move this application from Draft to Submitted. Scrutiny verification happens next." : "Click Refresh QR to generate a QR for the configured portal UPI ID."}
-              />
+              <p className="text-sm text-gray-600">Payment form opens in a popup. Use the close button (X) after completing payment actions.</p>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-lg bg-[#155b34] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0f4929]"
+                onClick={() => setPaymentModalOpen(true)}
+              >
+                Open Payment Popup
+              </button>
+
+              {paymentModalOpen && (
+                <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-black/55"
+                    aria-label="Close payment popup"
+                    onClick={() => setPaymentModalOpen(false)}
+                  />
+
+                  <div className="relative z-[1201] w-full max-w-7xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl">
+                    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-5 py-3">
+                      <h2 className="text-sm font-semibold text-gray-800">UPI Application Fee Payment</h2>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50"
+                        onClick={() => setPaymentModalOpen(false)}
+                        aria-label="Close"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <ApplicationFeePaymentCard
+                        applicationReference={applicationRef || (applicationId ? `Application #${applicationId}` : "Draft application")}
+                        applicationTitle={project.projectName || "New application fee"}
+                        workflowStatus={isEdsReview ? "EDS" : paymentMarked ? "Submitted" : "Draft"}
+                        amount={paymentInfo?.amount ?? estimatedPaymentAmount}
+                        qrPayload={paymentInfo?.qrPayload || ""}
+                        upiId={upiId}
+                        upiNote={paymentInfo?.upiReferenceNote || (applicationRef ? `Application-${applicationRef}` : "Application-Draft")}
+                        paymentStatus={paymentStatus}
+                        upiRef={upiRef}
+                        onUpiRefChange={setUpiRef}
+                        onMarkPaid={onMarkPaid}
+                        onRefresh={onGeneratePayment}
+                        loading={paymentActionLoading}
+                        compactView
+                        disableActions={false}
+                        helperText={
+                          isEdsReview
+                            ? "Payment is already recorded for this application. Complete corrections and resend to scrutiny."
+                            : paymentInfo
+                              ? "Payment submission will automatically move this application from Draft to Submitted. Scrutiny verification happens next."
+                              : "Click Refresh QR to generate a QR for the configured portal UPI ID."
+                        }
+                      />
+                    </div>
+
+                    {showPaidAnimation && (
+                      <div className="absolute inset-0 z-[1202] flex items-center justify-center bg-black/45">
+                        <div className="rounded-2xl bg-white px-8 py-6 shadow-2xl flex flex-col items-center gap-2 animate-[fadeIn_220ms_ease-out]">
+                          <CheckCircle2 className="h-16 w-16 text-emerald-600 animate-[popIn_300ms_ease-out]" />
+                          <p className="text-xl font-bold text-emerald-700">Paid</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <style>{`
+                      @keyframes popIn {
+                        0% { transform: scale(0.7); opacity: 0; }
+                        100% { transform: scale(1); opacity: 1; }
+                      }
+                      @keyframes fadeIn {
+                        0% { opacity: 0; }
+                        100% { opacity: 1; }
+                      }
+                    `}</style>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -514,7 +710,9 @@ export default function NewApplication() {
                   <Check className="w-8 h-8 text-green-700" />
                 </div>
                 <h2 className="text-2xl font-bold mb-2">Application Submitted</h2>
-                <p className="text-gray-600">Your application is now in the scrutiny pipeline with payment pending verification.</p>
+                <p className="text-gray-600">
+                  {isEditMode ? "Your corrected application has been resent for scrutiny review." : "Your application is now in the scrutiny pipeline with payment pending verification."}
+                </p>
                 {applicationRef && <p className="text-sm mt-3 text-gray-500">Reference: {applicationRef}</p>}
               </div>
             </div>
@@ -531,8 +729,18 @@ export default function NewApplication() {
 
             <div className="flex items-center gap-3">
               <button className="px-4 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 inline-flex items-center gap-2" onClick={onSaveDraft} disabled={saving}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save Draft
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {isEdsReview ? "Save Changes" : "Save Draft"}
               </button>
+
+              {isEdsReview && applicationId && currentStep < 7 && (
+                <button
+                  className="px-4 py-2 rounded-lg text-sm bg-[#FF6B00] text-white disabled:opacity-50 inline-flex items-center gap-2"
+                  onClick={onResendToScrutiny}
+                  disabled={saving}
+                >
+                  Resend to Scrutiny
+                </button>
+              )}
 
               {currentStep < 7 ? (
                 <button

@@ -85,6 +85,9 @@ export type MomApplication = {
   mom_path?: string | null;
   finalized: number;
   finalized_at?: string | null;
+  meeting_date?: string | null;
+  meeting_id?: string | null;
+  committee_name?: string | null;
   updated_at: string;
   created_at: string;
 };
@@ -107,6 +110,44 @@ export async function convertMom(id: number): Promise<{ docxUrl: string; pdfUrl:
 
 export async function finalizeMom(id: number): Promise<{ success: true; finalizedAt: string }> {
   return momFetch<{ success: true; finalizedAt: string }>("PUT", `/mom/applications/${id}/finalize`);
+}
+
+function parseEventDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const candidate = new Date(value);
+  return Number.isNaN(candidate.getTime()) ? null : candidate;
+}
+
+function toGoogleUtcStamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+export function buildMomGoogleCalendarUrl(application: MomApplication): string {
+  const base = parseEventDate(application.meeting_date) ?? parseEventDate(application.finalized_at) ?? parseEventDate(application.updated_at) ?? parseEventDate(application.created_at) ?? new Date();
+  const end = new Date(base.getTime() + 60 * 60 * 1000);
+
+  const title = `MoM Review: ${application.application_id}`;
+  const committeeLabel = application.committee_name?.trim() || "EAC/SEAC";
+  const meetingLabel = application.meeting_id?.trim() ? `Meeting ID: ${application.meeting_id}` : "";
+  const location = "PARIVESH Meeting Room";
+  const details = [
+    `Project: ${application.project_name}`,
+    `Category: ${application.category}`,
+    `Sector: ${application.sector_name || application.sector}`,
+    `Committee: ${committeeLabel}`,
+    meetingLabel,
+    `Application: ${application.application_id}`,
+  ].filter(Boolean).join("\n");
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: title,
+    dates: `${toGoogleUtcStamp(base)}/${toGoogleUtcStamp(end)}`,
+    details,
+    location,
+  });
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 export async function downloadUrl(url: string, filename: string): Promise<void> {

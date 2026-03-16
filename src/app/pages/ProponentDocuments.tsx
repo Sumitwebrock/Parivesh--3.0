@@ -26,7 +26,10 @@ export default function ProponentDocuments() {
       try {
         const list = await fetchApplications();
         setApps(list);
-        if (list.length) setSelectedApp(list[0].id);
+        if (list.length) {
+          const firstEds = list.find((item) => item.status === "EDS");
+          setSelectedApp((firstEds ?? list[0]).id);
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to load applications.");
       } finally {
@@ -60,6 +63,8 @@ export default function ProponentDocuments() {
     }
   };
 
+  const selectedApplication = apps.find((item) => item.id === selectedApp) ?? null;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
@@ -75,6 +80,12 @@ export default function ProponentDocuments() {
             </div>
 
             {error && <div className="text-sm text-red-700 bg-red-50 px-3 py-2 rounded-lg">{error}</div>}
+
+            {selectedApplication?.status === "EDS" && (
+              <div className="text-sm text-orange-800 bg-orange-50 border border-orange-200 px-3 py-2 rounded-lg">
+                This application was sent back to Proponent for review. Upload corrected documents and resubmit from the application form.
+              </div>
+            )}
 
             <div className="bg-white rounded-xl shadow-md p-5 grid md:grid-cols-3 gap-4 items-end">
               <div className="md:col-span-1">

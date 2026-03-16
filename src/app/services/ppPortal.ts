@@ -194,6 +194,33 @@ export type ApplicationHistory = {
   created_at: string;
 };
 
+export type RecentPaymentRow = {
+  id: number;
+  application_id: number;
+  amount: number;
+  upi_ref: string;
+  status: string;
+  verified_by?: string;
+  verified_at?: string | null;
+  updated_at: string;
+  application_ref: string;
+  project_name: string;
+  category: string;
+  application_status: string;
+  sector_name: string;
+};
+
+export type PpNotification = {
+  id: number;
+  application_id: number | null;
+  application_ref?: string;
+  type: "alert" | "success" | "info" | "error" | string;
+  title: string;
+  message: string;
+  is_read: number;
+  created_at: string;
+};
+
 export async function fetchPpConfig(): Promise<PpConfig> {
   return ppFetch<PpConfig>("GET", "/pp/config");
 }
@@ -276,7 +303,37 @@ export async function fetchTracking(id: number): Promise<{
   edsComments: string;
   edsSummary: string;
   paymentStatus: string;
-  history: ApplicationHistory[];
+  history: Array<{
+    id: number;
+    status: string;
+    comment: string;
+    created_by: string;
+    created_at: string;
+  }>;
 }> {
   return ppFetch("GET", `/pp/applications/${id}/tracking`);
+}
+
+export async function fetchRecentPayments(limit = 10): Promise<RecentPaymentRow[]> {
+  return ppFetch<RecentPaymentRow[]>("GET", `/pp/payments/recent?limit=${Math.max(1, Math.min(50, Number(limit) || 10))}`);
+}
+
+export async function fetchNotifications(): Promise<PpNotification[]> {
+  return ppFetch<PpNotification[]>("GET", "/pp/notifications");
+}
+
+export async function markNotificationRead(id: number, read = true): Promise<{ ok: true }> {
+  return ppFetch<{ ok: true }>("PATCH", `/pp/notifications/${id}/read`, { read });
+}
+
+export async function markAllNotificationsRead(): Promise<{ ok: true }> {
+  return ppFetch<{ ok: true }>("PATCH", "/pp/notifications/read-all");
+}
+
+export async function deleteNotification(id: number): Promise<{ ok: true }> {
+  return ppFetch<{ ok: true }>("DELETE", `/pp/notifications/${id}`);
+}
+
+export async function clearNotifications(): Promise<{ ok: true }> {
+  return ppFetch<{ ok: true }>("DELETE", "/pp/notifications");
 }

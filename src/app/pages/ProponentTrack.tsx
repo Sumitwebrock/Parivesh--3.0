@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { ProponentSidebar } from "../components/ProponentSidebar";
@@ -33,6 +34,7 @@ function parseSummaryBullets(summary: string): string[] {
 }
 
 export default function ProponentTrack() {
+  const [searchParams] = useSearchParams();
   const [apps, setApps] = useState<ApplicationRow[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [tracking, setTracking] = useState<Tracking | null>(null);
@@ -46,7 +48,13 @@ export default function ProponentTrack() {
       try {
         const list = await fetchApplications();
         setApps(list);
-        if (list.length) setSelected(list[0].id);
+        if (list.length) {
+          const requested = searchParams.get("app") || "";
+          const requestedId = Number(requested || 0);
+          const byId = requestedId ? list.find((item) => item.id === requestedId) : null;
+          const byRef = requested ? list.find((item) => String(item.application_id).toLowerCase() === requested.toLowerCase()) : null;
+          setSelected((byId ?? byRef ?? list[0]).id);
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to load applications.");
       } finally {
@@ -54,7 +62,10 @@ export default function ProponentTrack() {
       }
     };
     run();
-  }, []);
+  }, [searchParams]);
+
+  const stageSequence = ["Draft", "Submitted", "Under Scrutiny", "EDS", "Referred", "Finalized"];
+  const currentStageIndex = tracking ? Math.max(stageSequence.indexOf(tracking.status), 0) : 0;
 
   useEffect(() => {
     const run = async () => {
@@ -107,6 +118,25 @@ export default function ProponentTrack() {
                     <Info label="Current Status" value={tracking.status} />
                     <Info label="Payment Status" value={tracking.paymentStatus} />
                     <Info label="Reference" value={tracking.applicationId} />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                    {stageSequence.map((stage, index) => {
+                      const isCurrent = index === currentStageIndex;
+                      const isCompleted = index < currentStageIndex;
+                      return (
+                        <div
+                          key={stage}
+                          className="rounded-lg border px-2 py-3 text-center"
+                          style={{
+                            background: isCurrent ? "#fff7ed" : isCompleted ? "#f0fdf4" : "#f9fafb",
+                            borderColor: isCurrent ? "#fdba74" : isCompleted ? "#86efac" : "#e5e7eb",
+                          }}
+                        >
+                          <p className="text-[10px] uppercase text-gray-500 font-semibold">Stage {index + 1}</p>
+                          <p className="text-xs font-semibold mt-1">{stage}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                   {tracking.status === "EDS" && (
                     <div className="space-y-3">

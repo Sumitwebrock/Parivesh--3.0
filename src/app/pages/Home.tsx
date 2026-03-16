@@ -1,7 +1,7 @@
 ﻿import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { Footer } from "../components/Footer";
-import { PartnersSection } from "../components/PartnersSection";
+import { PartnersSection } from "../components/PartnersSection.tsx";
 import { PariveshWheelWatermark } from "../components/PariveshWatermark";
 import {
   ArrowRight, FileCheck, Users, MapPin, FileText, Search,
@@ -9,7 +9,7 @@ import {
   Plus, Bell, BookOpen, HelpCircle,
   Download, ChevronRight, ChevronLeft, Zap, Sparkles, ExternalLink, TreePine, Workflow,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 
@@ -17,6 +17,29 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 const GREEN  = "#1A5C1A";
 const ORANGE = "#FF6B00";
 const BLUE   = "#003087";
+
+const GALLERY_IMAGES = [
+  {
+    src: "/gallery/parivesh-banner-1.png",
+    title: "Parivesh Banner 1",
+  },
+  {
+    src: "/gallery/banner_1.png",
+    title: "Vande Mataram Banner",
+  },
+  {
+    src: "/gallery/banner_3.png",
+    title: "Prime Minister Message Banner",
+  },
+  {
+    src: "/gallery/vmb.png",
+    title: "Parivesh 2.0 Banner",
+  },
+  {
+    src: "/gallery/mygov_166582330951307401.jpg",
+    title: "LiFE 21 Day Challenge Banner",
+  },
+];
 
 function useCountUp(target: number, duration = 1800) {
   const [count, setCount] = useState(0);
@@ -104,7 +127,7 @@ const SLIDES = [
     cta1: { label: "Apply for Clearance", link: "/login" },
     cta2: { label: "Explore Portal", link: "/about" },
     accent: ORANGE,
-    bg: "linear-gradient(135deg, #021a02 0%, #0a2e0a 45%, #001a4a 100%)",
+    bg: "linear-gradient(135deg, #094901 0%, #002864 45%, #001a4a 100%)",
   },
   {
     badge: "ENVIRONMENTAL CLEARANCE - EIA 2006",
@@ -114,18 +137,18 @@ const SLIDES = [
     cta1: { label: "Start EC Application", link: "/clearance/environmental" },
     cta2: { label: "Know More", link: "/about" },
     accent: "#22C55E",
-    bg: "linear-gradient(135deg, #021a02 0%, #063a1f 50%, #0a5c1a 100%)",
+    bg: "linear-gradient(135deg, #021a02 0%, #002743 50%, #084299 100%)",
   },
-  {
-    badge: "FOREST CONSERVATION ACT 1980",
-    titleLines: ["FOREST", "CLEARANCE"],
-    highlight: "CLEARANCE",
-    sub: "Streamlined diversion proposals under FCA, integrating state-level approvals with MoEFCC review",
-    cta1: { label: "Apply for FC", link: "/clearance/forest" },
-    cta2: { label: "View Guidelines", link: "/downloads" },
-    accent: "#4ade80",
-    bg: "linear-gradient(135deg, #021a02 0%, #052e0d 50%, #1a4a0a 100%)",
-  },
+   
+    // badge: "FOREST CONSERVATION ACT 1980",
+    // titleLines: ["FOREST", "CLEARANCE"],
+    // highlight: "CLEARANCE",
+    // sub: "Streamlined diversion proposals under FCA, integrating state-level approvals with MoEFCC review",
+    // cta1: { label: "Apply for FC", link: "/clearance/forest" },
+    // cta2: { label: "View Guidelines", link: "/downloads" },
+    // accent: "#4ade80",
+    // bg: "linear-gradient(135deg, #021a02 0%, #032761 50%, #0b2d57 100%)",
+  
 ];
 
 const TICKER_ITEMS = [
@@ -169,8 +192,6 @@ const PROCESS_STEPS = [
 ];
 
 export default function Home() {
-  const navigate = useNavigate();
-  const [trackId, setTrackId]   = useState("");
   const [slideIdx, setSlideIdx] = useState(0);
   const [openFaq, setOpenFaq]   = useState<number | null>(0);
   const [tickerPaused, setTickerPaused] = useState(false);
@@ -184,11 +205,6 @@ export default function Home() {
     slideTimer.current = setInterval(nextSlide, 6000);
     return () => { if (slideTimer.current) clearInterval(slideTimer.current); };
   }, [nextSlide]);
-
-  const handleTrack = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (trackId.trim()) navigate(`/proponent?track=${trackId}`);
-  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -266,24 +282,6 @@ export default function Home() {
                 <p className="text-base leading-relaxed mb-8 max-w-lg" style={{ color: "rgba(187,247,208,0.72)" }}>{slide.sub}</p>
               </motion.div>
             </AnimatePresence>
-
-            <motion.form onSubmit={handleTrack}
-              initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3, duration: 0.6, ease: EASE }}
-              className="flex mb-7 overflow-hidden"
-              style={{ maxWidth: 540, borderRadius: 16, background: "rgba(255,255,255,0.07)", backdropFilter: "blur(18px)", border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 16px 48px rgba(0,0,0,0.35)" }}>
-              <div className="flex items-center flex-1 px-5 gap-3">
-                <Search style={{ width: 18, height: 18, flexShrink: 0, color: "#34d399" }} />
-                <input type="text" value={trackId} onChange={e => setTrackId(e.target.value)}
-                  placeholder="Track Your Proposal e.g. ENV/2026/001234"
-                  className="flex-1 py-3.5 text-sm text-white bg-transparent outline-none placeholder-white/40 font-medium" />
-              </div>
-              <button type="submit"
-                className="px-6 text-sm font-bold text-white whitespace-nowrap flex items-center gap-1.5 transition-opacity hover:opacity-90"
-                style={{ background: `linear-gradient(135deg, ${ORANGE}, #cc5200)` }}>
-                Track <ArrowRight style={{ width: 16, height: 16 }} />
-              </button>
-            </motion.form>
 
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45, duration: 0.6 }}
               className="flex flex-wrap gap-3">
@@ -380,6 +378,40 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* HORIZONTAL PHOTO GALLERY */}
+      <section className="py-14 overflow-hidden" style={{ background: "linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%)" }}>
+        <div className="max-w-[1400px] mx-auto px-6">
+          <div className="relative">
+            <motion.div
+              className="flex gap-5"
+              animate={{ x: ["0%", "-50%"] }}
+              transition={{ duration: 38, ease: "linear", repeat: Infinity }}
+            >
+              {[...GALLERY_IMAGES, ...GALLERY_IMAGES].map((item, i) => (
+                <div
+                  key={`${item.title}-${i}`}
+                  className="relative flex-shrink-0 rounded-2xl overflow-hidden"
+                  style={{ width: 420, height: 255, boxShadow: "0 12px 34px rgba(3,25,66,0.18)" }}
+                >
+                  <img
+                    src={item.src}
+                    alt={item.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    draggable={false}
+                  />
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(2,20,45,0.72) 100%)" }} />
+                  <div className="absolute left-4 right-4 bottom-3 flex items-end justify-between gap-2">
+                    <p className="text-white font-bold text-sm" style={{ fontFamily: "Rajdhani, sans-serif" }}>{item.title}</p>
+                    <Leaf style={{ width: 16, height: 16, color: "#86efac" }} />
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+      </section>
 
       {/* CLEARANCE TYPES */}
       <section className="py-24 bg-white">
@@ -612,7 +644,7 @@ export default function Home() {
         <PartnersSection />
       </div>
 
-      {/* CTA BANNER */}
+      {/* CTA BANNER (commented out as requested)
       <section className="py-20 relative overflow-hidden"
         style={{ background: `linear-gradient(135deg, #0a1f0a 0%, ${BLUE} 100%)` }}>
         <div className="absolute -left-20 -top-20 w-80 h-80 rounded-full opacity-10 blur-3xl" style={{ background: GREEN }} />
@@ -646,6 +678,7 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
+      */}
 
       <Footer />
     </div>

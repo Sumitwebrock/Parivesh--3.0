@@ -11,110 +11,48 @@ import {
   Eye,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useLanguage } from "../context/LanguageContext";
+import { useEffect, useMemo, useState } from "react";
+import {
+  clearNotifications,
+  deleteNotification,
+  fetchNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type PpNotification,
+} from "../services/ppPortal";
 
 export default function ProponentNotifications() {
-  const { t } = useLanguage();
+  const [notifications, setNotifications] = useState<PpNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread" | "alert" | "success" | "info">("all");
 
-  const notifications = [
-    {
-      id: 1,
-      type: "alert",
-      title: "EDS Response Required",
-      message:
-        "Environmental Data Sheet response needed for EC/2026/00198. Please submit within 15 days.",
-      time: "2 hours ago",
-      read: false,
-      application: "EC/2026/00198",
-    },
-    {
-      id: 2,
-      type: "success",
-      title: "Payment Confirmed",
-      message:
-        "Payment of ₹75,000 received successfully for application EC/2026/00234",
-      time: "1 day ago",
-      read: false,
-      application: "EC/2026/00234",
-    },
-    {
-      id: 3,
-      type: "info",
-      title: "Document Verified",
-      message:
-        "Environmental Impact Assessment report has been verified and approved.",
-      time: "2 days ago",
-      read: true,
-      application: "EC/2026/00234",
-    },
-    {
-      id: 4,
-      type: "alert",
-      title: "Meeting Scheduled",
-      message:
-        "Expert Appraisal Committee meeting scheduled for 2026-03-25 to review your application EC/2025/01876",
-      time: "3 days ago",
-      read: true,
-      application: "EC/2025/01876",
-    },
-    {
-      id: 5,
-      type: "success",
-      title: "Application Submitted",
-      message:
-        "Your application EC/2026/00234 has been successfully submitted and is under review.",
-      time: "5 days ago",
-      read: true,
-      application: "EC/2026/00234",
-    },
-    {
-      id: 6,
-      type: "info",
-      title: "Scrutiny Started",
-      message:
-        "Document scrutiny has begun for application EC/2026/00198. Assigned to Ms. Verma.",
-      time: "1 week ago",
-      read: true,
-      application: "EC/2026/00198",
-    },
-    {
-      id: 7,
-      type: "error",
-      title: "Document Rejected",
-      message:
-        "Land ownership certificate requires re-submission with proper attestation.",
-      time: "1 week ago",
-      read: true,
-      application: "EC/2026/00198",
-    },
-    {
-      id: 8,
-      type: "success",
-      title: "MoM Generated",
-      message:
-        "Minutes of Meeting generated for EC/2025/01876. Download from your dashboard.",
-      time: "2 weeks ago",
-      read: true,
-      application: "EC/2025/01876",
-    },
-  ];
+  const loadNotifications = async () => {
+    setError("");
+    try {
+      setNotifications(await fetchNotifications());
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load notifications.");
+    }
+  };
 
-  const preferenceKeys = [
-    "notifications.preferences.statusUpdates",
-    "notifications.preferences.paymentConfirmations",
-    "notifications.preferences.documentAlerts",
-    "notifications.preferences.meetingSchedules",
-    "notifications.preferences.edsRequests",
-    "notifications.preferences.systemAnnouncements",
-  ] as const;
+  useEffect(() => {
+    const run = async () => {
+      setLoading(true);
+      await loadNotifications();
+      setLoading(false);
+    };
+    run();
 
-  const filterTabs = [
-    { key: "notifications.filter.all", label: t("notifications.filter.all") },
-    { key: "notifications.filter.unread", label: t("notifications.filter.unread") },
-    { key: "notifications.filter.alerts", label: t("notifications.filter.alerts") },
-    { key: "notifications.filter.success", label: t("notifications.filter.success") },
-    { key: "notifications.filter.info", label: t("notifications.filter.info") },
-  ];
+    const timer = window.setInterval(loadNotifications, 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const filteredNotifications = useMemo(() => {
+    if (filter === "all") return notifications;
+    if (filter === "unread") return notifications.filter((n) => !n.is_read);
+    return notifications.filter((n) => n.type === filter);
+  }, [filter, notifications]);
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -146,7 +84,25 @@ export default function ProponentNotifications() {
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const onMarkRead = async (id: number, read = true) => {
+    try {
+      await markNotificationRead(id, read);
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: read ? 1 : 0 } : n)));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update notification.");
+    }
+  };
+
+  const onDelete = async (id: number) => {
+    try {
+      await deleteNotification(id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete notification.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -164,29 +120,43 @@ export default function ProponentNotifications() {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                    {t("notifications.title")}
+                    Notifications
                   </h1>
                   <p className="text-gray-600">
-                    {t("notifications.subtitle")}
+                    Real-time workflow updates from backend events.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <button className="px-4 py-2 text-sm text-[#1A5C1A] bg-white border border-[#1A5C1A] rounded-lg hover:bg-green-50 transition-colors">
-                    {t("notifications.markAllRead")}
+                  <button
+                    className="px-4 py-2 text-sm text-[#1A5C1A] bg-white border border-[#1A5C1A] rounded-lg hover:bg-green-50 transition-colors"
+                    onClick={async () => {
+                      await markAllNotificationsRead();
+                      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
+                    }}
+                  >
+                    Mark all as read
                   </button>
-                  <button className="px-4 py-2 text-sm text-red-600 bg-white border border-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2">
+                  <button
+                    className="px-4 py-2 text-sm text-red-600 bg-white border border-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2"
+                    onClick={async () => {
+                      await clearNotifications();
+                      setNotifications([]);
+                    }}
+                  >
                     <Trash2 className="w-4 h-4" />
-                    {t("notifications.clearAll")}
+                    Clear all
                   </button>
                 </div>
               </div>
             </div>
 
+            {error && <div className="mb-4 rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</div>}
+
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
               <div className="bg-white rounded-lg shadow-md p-4">
                 <p className="text-sm text-gray-600 mb-1">
-                  {t("notifications.stats.total")}
+                  Total
                 </p>
                 <p className="text-2xl font-bold text-gray-900">
                   {notifications.length}
@@ -194,7 +164,7 @@ export default function ProponentNotifications() {
               </div>
               <div className="bg-white rounded-lg shadow-md p-4">
                 <p className="text-sm text-gray-600 mb-1">
-                  {t("notifications.stats.unread")}
+                  Unread
                 </p>
                 <p className="text-2xl font-bold text-orange-600">
                   {unreadCount}
@@ -202,7 +172,7 @@ export default function ProponentNotifications() {
               </div>
               <div className="bg-white rounded-lg shadow-md p-4">
                 <p className="text-sm text-gray-600 mb-1">
-                  {t("notifications.stats.alerts")}
+                  Alerts
                 </p>
                 <p className="text-2xl font-bold text-red-600">
                   {notifications.filter((n) => n.type === "alert").length}
@@ -210,7 +180,7 @@ export default function ProponentNotifications() {
               </div>
               <div className="bg-white rounded-lg shadow-md p-4">
                 <p className="text-sm text-gray-600 mb-1">
-                  {t("notifications.stats.updates")}
+                  Updates
                 </p>
                 <p className="text-2xl font-bold text-blue-600">
                   {notifications.filter((n) => n.type === "info").length}
@@ -220,11 +190,18 @@ export default function ProponentNotifications() {
 
             {/* Filter Tabs */}
             <div className="flex gap-2 mb-6 overflow-x-auto">
-              {filterTabs.map((tab, index) => (
+              {[
+                { key: "all", label: "All" },
+                { key: "unread", label: "Unread" },
+                { key: "alert", label: "Alerts" },
+                { key: "success", label: "Success" },
+                { key: "info", label: "Info" },
+              ].map((tab) => (
                 <button
                   key={tab.key}
+                  onClick={() => setFilter(tab.key as typeof filter)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                    index === 0
+                    filter === tab.key
                       ? "bg-[#1A5C1A] text-white"
                       : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-300"
                   }`}
@@ -236,7 +213,9 @@ export default function ProponentNotifications() {
 
             {/* Notifications List */}
             <div className="space-y-4">
-              {notifications.map((notification, index) => (
+              {loading ? (
+                <div className="bg-white rounded-lg border p-6 text-sm text-gray-500">Loading notifications...</div>
+              ) : filteredNotifications.map((notification, index) => (
                 <motion.div
                   key={notification.id}
                   initial={{ opacity: 0, x: -20 }}
@@ -244,7 +223,7 @@ export default function ProponentNotifications() {
                   transition={{ delay: index * 0.05 }}
                   className={`border-l-4 rounded-lg p-5 ${getNotificationColor(
                     notification.type
-                  )} ${notification.read ? "opacity-70" : "shadow-md"}`}
+                  )} ${notification.is_read ? "opacity-70" : "shadow-md"}`}
                 >
                   <div className="flex items-start gap-4">
                     <div
@@ -264,12 +243,12 @@ export default function ProponentNotifications() {
                       <div className="flex items-start justify-between mb-2">
                         <h3 className="font-semibold text-gray-900">
                           {notification.title}
-                          {!notification.read && (
+                          {!notification.is_read && (
                             <span className="ml-2 inline-block w-2 h-2 bg-[#FF6B00] rounded-full" />
                           )}
                         </h3>
                         <span className="text-xs text-gray-600 whitespace-nowrap ml-4">
-                          {notification.time}
+                          {new Date(notification.created_at).toLocaleString()}
                         </span>
                       </div>
                       <p className="text-sm text-gray-700 mb-3">
@@ -277,21 +256,21 @@ export default function ProponentNotifications() {
                       </p>
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-600">
-                          {t("notifications.application")}: {notification.application}
+                          Application: {notification.application_ref || "-"}
                         </span>
                         <div className="flex items-center gap-2">
                           <button className="text-xs text-blue-600 hover:underline flex items-center gap-1">
                             <Eye className="w-3 h-3" />
-                            {t("notifications.viewDetails")}
+                            Details
                           </button>
-                          {!notification.read && (
-                            <button className="text-xs text-[#1A5C1A] hover:underline">
-                              {t("notifications.markAsRead")}
+                          {!notification.is_read && (
+                            <button className="text-xs text-[#1A5C1A] hover:underline" onClick={() => onMarkRead(notification.id, true)}>
+                              Mark as read
                             </button>
                           )}
-                          <button className="text-xs text-red-600 hover:underline flex items-center gap-1">
+                          <button className="text-xs text-red-600 hover:underline flex items-center gap-1" onClick={() => onDelete(notification.id)}>
                             <Trash2 className="w-3 h-3" />
-                            {t("notifications.delete")}
+                            Delete
                           </button>
                         </div>
                       </div>
@@ -302,39 +281,17 @@ export default function ProponentNotifications() {
             </div>
 
             {/* Empty State */}
-            {notifications.length === 0 && (
+            {!loading && filteredNotifications.length === 0 && (
               <div className="bg-white rounded-xl shadow-md p-12 text-center">
                 <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  {t("notifications.empty.title")}
+                  No notifications
                 </h3>
                 <p className="text-gray-600">
-                  {t("notifications.empty.description")}
+                  You are all caught up.
                 </p>
               </div>
             )}
-
-            {/* Notification Preferences */}
-            <div className="mt-8 bg-white rounded-xl shadow-md p-6">
-              <h3 className="font-semibold mb-4">
-                {t("notifications.preferences.title")}
-              </h3>
-              <div className="space-y-3">
-                {preferenceKeys.map((key, index) => (
-                  <label key={index} className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      defaultChecked
-                      className="w-4 h-4 text-[#1A5C1A] border-gray-300 rounded focus:ring-[#1A5C1A]"
-                    />
-                    <span className="text-sm text-gray-700">{t(key)}</span>
-                  </label>
-                ))}
-              </div>
-              <button className="mt-4 bg-[#1A5C1A] text-white px-6 py-2 rounded-lg font-medium hover:bg-[#145014] transition-colors">
-                {t("notifications.preferences.save")}
-              </button>
-            </div>
           </div>
         </div>
       </div>

@@ -22,7 +22,7 @@ export function Navigation() {
     <nav
       className="text-white shadow-md sticky top-0 z-40"
       style={{
-        background: "linear-gradient(90deg, #1A5C1A 0%, #145014 60%, #003087 100%)",
+        background: "linear-gradient(90deg, #17106d 0%, #043549 60%, #003087 100%)",
         borderBottom: "3px solid #FF6B00",
       }}
     >
@@ -30,7 +30,7 @@ export function Navigation() {
         <div className="flex items-center justify-between gap-2" style={{ minHeight: 46 }}>
 
           {/* ── Left nav links ── */}
-          <div className="flex items-center gap-0.5 min-w-0 flex-shrink overflow-x-auto">
+          <div className="flex items-center gap-0.5 min-w-0 flex-shrink overflow-hidden">
             <Link to="/" className={linkCls("/")}>{t("nav.home")}</Link>
             <Link to="/about" className={linkCls("/about")}>{t("nav.about")}</Link>
 

@@ -56,6 +56,11 @@ export default function ProponentDashboard() {
     eds: apps.filter((a) => a.status === "EDS").length,
   }), [apps]);
 
+  const reviewQueue = useMemo(
+    () => apps.filter((a) => a.status === "EDS").sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))),
+    [apps],
+  );
+
   const saveProfile = async () => {
     setProfileMsg("");
     try {
@@ -99,6 +104,26 @@ export default function ProponentDashboard() {
               <Card label="EDS" value={String(stats.eds)} />
             </div>
 
+            {reviewQueue.length > 0 && (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
+                <h2 className="text-lg font-semibold text-orange-900">Needs Your Review (Sent Back by Scrutiny)</h2>
+                <p className="text-sm text-orange-800 mt-1">These applications were sent back to Proponent for correction and re-submission.</p>
+                <div className="mt-4 space-y-2">
+                  {reviewQueue.map((app) => (
+                    <div key={app.id} className="bg-white border border-orange-200 rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{app.application_id} - {app.project_name}</p>
+                        <p className="text-xs text-gray-600 mt-1">Updated: {new Date(app.updated_at).toLocaleString()}</p>
+                      </div>
+                      <Link to={`/proponent/new?edit=${app.id}`} className="inline-flex items-center justify-center px-3 py-2 rounded-lg bg-[#1A5C1A] text-white text-sm">
+                        Edit &amp; Resend
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-xl shadow-md overflow-hidden">
               <div className="p-5 border-b flex items-center justify-between">
                 <h2 className="text-lg font-semibold">My Applications</h2>
@@ -125,11 +150,12 @@ export default function ProponentDashboard() {
                         <th className="px-4 py-3 text-left">Payment</th>
                         <th className="px-4 py-3 text-left">Status</th>
                         <th className="px-4 py-3 text-left">Updated</th>
+                        <th className="px-4 py-3 text-left">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {apps.map((a) => (
-                        <tr key={a.id} className="hover:bg-gray-50">
+                        <tr key={a.id} className={`hover:bg-gray-50 ${a.status === "EDS" ? "bg-orange-50/40" : ""}`}>
                           <td className="px-4 py-3 font-medium">{a.application_id}</td>
                           <td className="px-4 py-3">{a.project_name}</td>
                           <td className="px-4 py-3">{a.category}</td>
@@ -137,6 +163,17 @@ export default function ProponentDashboard() {
                           <td className="px-4 py-3">{a.payment_status}</td>
                           <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
                           <td className="px-4 py-3 text-gray-500">{new Date(a.updated_at).toLocaleString()}</td>
+                          <td className="px-4 py-3">
+                            {a.status === "EDS" ? (
+                              <Link to={`/proponent/new?edit=${a.id}`} className="text-[#1A5C1A] hover:underline font-medium">
+                                Edit &amp; Resend
+                              </Link>
+                            ) : (
+                              <Link to={`/proponent/track?app=${a.id}`} className="text-[#1A5C1A] hover:underline">
+                                View
+                              </Link>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

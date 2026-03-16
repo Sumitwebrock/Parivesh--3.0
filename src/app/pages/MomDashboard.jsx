@@ -6,6 +6,7 @@ import { Header } from "../components/Header";
 import { Navigation } from "../components/Navigation";
 import { StatusBadge } from "../components/StatusBadge";
 import {
+  buildMomGoogleCalendarUrl,
   convertMom,
   downloadUrl,
   fetchMomApplications,
@@ -241,6 +242,14 @@ export default function MomDashboard() {
                               >
                                 Edit Gist
                               </button>
+                              <a
+                                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                                href={buildMomGoogleCalendarUrl(application)}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Add to Google Calendar
+                              </a>
                               <button
                                 className="rounded-lg bg-teal-600 px-3 py-2 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-60"
                                 disabled={finalized || isBusy}
