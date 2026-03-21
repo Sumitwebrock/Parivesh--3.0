@@ -1012,7 +1012,6 @@ function writeScrutinyGistPdf(filePath, model) {
     pdf.pipe(stream)
 
     let pageNumber = 0
-    let enableHeaderFooter = false
 
     const drawRunningHeader = () => {
       const pw = pdf.page.width
@@ -1055,19 +1054,16 @@ function writeScrutinyGistPdf(filePath, model) {
       pdf.restore()
     }
 
-    // pageAdded fires before PDFKit resets pdf.x / pdf.y, so header/footer draw
-    // safely; PDFKit then resets cursor to (margins.left, margins.top) after the event.
+    // Keep the page-added handler side-effect free. Drawing text from this hook can
+    // recursively trigger additional page operations in PDFKit for some payloads.
     pdf.on('pageAdded', () => {
       pageNumber++
-      if (enableHeaderFooter) {
-        drawRunningHeader()
-        drawRunningFooter()
-      }
     })
 
     // ─── Page 1: Cover page ──────────────────────────────────────────────────
     pdf.addPage()   // pageNumber = 1, enableHeaderFooter = false → no header/footer
-    enableHeaderFooter = true
+    // Page chrome for inner pages is intentionally disabled here to avoid
+    // recursive stack overflows observed in PDFKit on some records.
 
     const pw = pdf.page.width
     const ph = pdf.page.height
@@ -1175,8 +1171,8 @@ function writeScrutinyGistPdf(filePath, model) {
       )
 
     // ─── Content pages ────────────────────────────────────────────────────────
-    // pageAdded fires: pageNumber=2, enableHeaderFooter=true → header/footer drawn
-    // PDFKit then resets pdf.y = PDF_MARGINS.top = 80
+    // pageAdded fires: pageNumber increments and PDFKit resets
+    // pdf.y = PDF_MARGINS.top = 80 for the new page.
     pdf.addPage()
 
     for (const section of model.sections) {
@@ -1405,6 +1401,16 @@ app.use((_req, res, next) => {
 
 app.use('/uploads', express.static(uploadsDir))
 app.use('/api/mom', ...momAuth, createMomRoutes({ db, uploadsDir, blockchainAudit }))
+
+// ── Root Endpoint (Browser Friendly) ────────────────────────────────────────
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'auth-api',
+    message: 'Backend is running. Use /api/* endpoints.',
+    health: '/api/health',
+  })
+})
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'auth-api' }))
